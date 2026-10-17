@@ -150,3 +150,12 @@ def test_turn_budget_never_forces_a_tool(tmp_path):
     last_user = llm.requests[2]["messages"][-1]["content"]
     assert any(b.get("type") == "text" and "submit_diagnosis now" in b["text"] for b in last_user)
     assert all(r["cache_control"] == {"type": "ephemeral"} for r in llm.requests)
+
+
+def test_model_usage_is_audited(tmp_path):
+    script = [[("kubectl", {"args": ["get", "pods", "-n", "shop"]})], [good_submit()]]
+    agent, *_ = make_agent(tmp_path, script)
+    agent.diagnoser.run("INC-7", "context")
+    import json
+    usage = [json.loads(l) for l in open(tmp_path / "a.jsonl") if '"model_usage"' in l]
+    assert usage and usage[0]["model"] == "test-model" and usage[0]["output_tokens"] == 400 and usage[0]["turns"] == 2

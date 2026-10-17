@@ -233,7 +233,7 @@ class Diagnoser:
                                       allowed_paths=", ".join(self.cfg.allowed_paths))
         messages: list[dict] = [{"role": "user", "content": context}]
         investigation: list[dict] = []
-        usage_in = usage_out = 0
+        usage_in = usage_out = cache_read = cache_write = 0
         max_turns = self.cfg.max_turns
 
         for turn in range(1, max_turns + 1):
@@ -256,6 +256,8 @@ class Diagnoser:
             )
             usage_in += getattr(resp.usage, "input_tokens", 0) or 0
             usage_out += getattr(resp.usage, "output_tokens", 0) or 0
+            cache_read += getattr(resp.usage, "cache_read_input_tokens", 0) or 0
+            cache_write += getattr(resp.usage, "cache_creation_input_tokens", 0) or 0
             messages.append({"role": "assistant", "content": resp.content})
 
             tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
@@ -270,6 +272,7 @@ class Diagnoser:
                     if diag:
                         diag.model, diag.turns = self.cfg.model, turn
                         diag.input_tokens, diag.output_tokens = usage_in, usage_out
+                        self._audit_usage(ticket, turn, usage_in, usage_out, cache_read, cache_write)
                         return diag
                     results.append({"type": "tool_result", "tool_use_id": tu.id, "content": error, "is_error": True})
                     continue
@@ -280,12 +283,18 @@ class Diagnoser:
                 results.append({"type": "tool_result", "tool_use_id": tu.id, "content": output, "is_error": is_error})
             messages.append({"role": "user", "content": results})
 
+        self._audit_usage(ticket, max_turns, usage_in, usage_out, cache_read, cache_write)
         return Diagnosis(
             summary="The agent did not reach a conclusion within its turn budget.",
             root_cause="unknown", evidence=[], confidence="low", action="escalate",
             escalation_reason="turn budget exhausted", investigation=investigation,
             model=self.cfg.model, turns=max_turns, input_tokens=usage_in, output_tokens=usage_out,
         )
+
+    def _audit_usage(self, ticket: str, turns: int, uncached_in: int, out: int, cache_read: int, cache_write: int) -> None:
+        """Token usage per diagnosis, for comparing models and cost (input_tokens excludes cached tokens)."""
+        self.audit.write("model_usage", ticket=ticket, model=self.cfg.model, turns=turns, input_tokens=uncached_in,
+                         output_tokens=out, cache_read_input_tokens=cache_read, cache_creation_input_tokens=cache_write)
 
     def _finalize(self, ticket: str, data: dict, investigation: list[dict]) -> tuple[Diagnosis | None, str]:
         action = data.get("action", "escalate")

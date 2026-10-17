@@ -32,6 +32,7 @@ eyes, proposes a fix as a PR, then follows that PR through review, merge, ArgoCD
 ```bash
 cp 11-agent/.env.example agent.env && chmod 600 agent.env && $EDITOR agent.env
 #   ANTHROPIC_API_KEY
+#   AGENT_MODEL              claude-sonnet-5-5 (default) or claude-haiku-5-5 (~20x cheaper per token)
 #   GRAFANA_TOKEN            <- 09-agent-access/create-grafana-token.sh
 #   JIRA_*                   (same site/project as step 08)
 #   JIRA_TRANSITION_*        your workflow's status names. Software project: "In Progress" / "In Review" / Done;
