@@ -34,6 +34,8 @@ class FakeSession:
         self.calls.append((method, url, headers, json))
         if url.endswith("/repos/kyle/demo/installation"):
             return Resp(200, {"id": 42}) if self.installed else Resp(404, {"message": "Not Found"})
+        if url.endswith("/app"):
+            return Resp(200, {"slug": "demo-agent"})
         if url.endswith("/app/installations/42/access_tokens"):
             self.minted += 1
             return Resp(201, {"token": f"ghs_{self.minted}", "expires_at": "2030-01-01T01:00:00Z"})
@@ -81,5 +83,5 @@ def test_token_cached_then_renewed_before_expiry(keypair):
 
 
 def test_not_installed_is_a_clear_error(keypair):
-    with pytest.raises(RuntimeError, match="404"):
+    with pytest.raises(RuntimeError, match="not installed on kyle/demo.*apps/demo-agent/installations/new"):
         make(keypair, FakeSession(installed=False), [T0]).token()

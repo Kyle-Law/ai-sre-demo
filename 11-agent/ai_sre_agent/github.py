@@ -57,8 +57,14 @@ class AppAuth(requests.auth.AuthBase):
         if self._token and self.clock() < self._expires - 300:
             return self._token
         if not self.installation_id:
-            # 404 here means the App is not installed on the repo yet.
-            self.installation_id = str(self._call("GET", f"/repos/{self.repo}/installation")["id"])
+            try:
+                self.installation_id = str(self._call("GET", f"/repos/{self.repo}/installation")["id"])
+            except RuntimeError as exc:
+                if "-> 404" not in str(exc):
+                    raise
+                slug = self._call("GET", "/app").get("slug", "<app-slug>")
+                raise RuntimeError(f"GitHub App '{slug}' is not installed on {self.repo} (404). Install it: "
+                                   f"https://github.com/apps/{slug}/installations/new") from None
         data = self._call("POST", f"/app/installations/{self.installation_id}/access_tokens",
                           json={"repositories": [self.repo.split("/", 1)[1]], "permissions": APP_TOKEN_PERMISSIONS})
         self._token = data["token"]
