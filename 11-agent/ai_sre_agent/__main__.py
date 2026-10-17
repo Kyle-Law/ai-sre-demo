@@ -2,7 +2,7 @@
 
     python -m ai_sre_agent run              # main loop (11-agent/run.sh runs this)
     python -m ai_sre_agent once             # a single poll cycle
-    python -m ai_sre_agent diagnose INC-12  # investigate one ticket, print findings, write nothing
+    python -m ai_sre_agent diagnose INC-1   # investigate one ticket, print findings, write nothing
     python -m ai_sre_agent status           # incidents in the local state DB
     python -m ai_sre_agent selftest         # connectivity + proof the kubeconfig is read-only
 """
@@ -53,9 +53,16 @@ def cmd_run(cfg: Config) -> None:
     log.info("AI SRE agent started: project=%s repo=%s model=%s dry_run=%s",
              cfg.jira_project_key, cfg.github_repo, cfg.model, cfg.dry_run)
     agent.audit.write("agent_started", model=cfg.model, repo=cfg.github_repo, dry_run=cfg.dry_run)
+    log.info("watching Jira project %s for open tickets labelled '%s' every %ss (Ctrl-C to stop)",
+             cfg.jira_project_key, cfg.jira_triage_label, cfg.poll_seconds)
     agent.recover()
+    heartbeat_every = max(1, 300 // max(cfg.poll_seconds, 1))  # ~5 minutes
+    ticks = 0
     while not stop["flag"]:
         agent.tick()
+        ticks += 1
+        if ticks % heartbeat_every == 0:
+            log.info("still watching (%d incident(s) in local state)", len(agent.state.all()))
         for _ in range(cfg.poll_seconds):
             if stop["flag"]:
                 break
@@ -160,15 +167,20 @@ def main() -> None:
         cmd_status(Config(**{**_status_defaults(), "state_db": os.environ.get("STATE_DB", _status_defaults()["state_db"])}))
         return
     cfg = Config.from_env()
-    if args.cmd == "run":
-        cmd_run(cfg)
-    elif args.cmd == "once":
-        agent = build(cfg)
-        agent.tick()
-    elif args.cmd == "diagnose":
-        cmd_diagnose(cfg, args.key)
-    elif args.cmd == "selftest":
-        sys.exit(cmd_selftest(cfg))
+    try:
+        if args.cmd == "run":
+            cmd_run(cfg)
+        elif args.cmd == "once":
+            agent = build(cfg)
+            agent.tick()
+        elif args.cmd == "diagnose":
+            cmd_diagnose(cfg, args.key)
+        elif args.cmd == "selftest":
+            sys.exit(cmd_selftest(cfg))
+    except RuntimeError as exc:  # API errors: show the message, not a traceback (-v for details)
+        if args.verbose:
+            raise
+        sys.exit(f"error: {exc}")
 
 
 def _status_defaults() -> dict:

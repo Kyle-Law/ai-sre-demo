@@ -51,7 +51,7 @@ make step-11                   # the real loop (Ctrl-C stops after the current c
 ```bash
 tail -f .agent/audit.jsonl | jq .            # every tool call, every external write
 ./11-agent/run.sh status                     # incidents in the local state DB, with timelines
-./11-agent/run.sh diagnose INC-12            # investigate one ticket, print only
+./11-agent/run.sh diagnose <KEY>             # e.g. INC-1: investigate a real ticket, print only
 make test                                    # offline tests: agent lifecycle against fakes
 ```
 

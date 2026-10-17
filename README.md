@@ -103,8 +103,7 @@ tests/                   Repo-level checks (layout, manifests, scenarios vs. ale
 All of this runs offline (no cluster or API keys needed):
 
 ```bash
-pip install -r 11-agent/requirements.txt pytest
-make test
+make test        # creates .venv with the agent + pytest on first run
 ```
 
 They cover the kubectl guard, the full ticket → PR → merge → sync → verify lifecycle against

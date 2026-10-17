@@ -23,8 +23,10 @@ up: ## Steps 01-09 in order (cluster + platform; needs demo.env incl. Jira)
 down: ## Delete the kind cluster
 	kind delete cluster --name $${KIND_CLUSTER_NAME:-ai-sre}
 
-test: ## Offline tests (agent, alert bridge, scenarios, repo layout)
-	python3 -m pytest -q 11-agent/tests 08-jira-integration/tests 12-scenarios/tests tests
+test: ## Offline tests (agent, alert bridge, scenarios, repo layout) in .venv
+	@test -x .venv/bin/python || python3 -m venv .venv
+	@.venv/bin/pip install -q -e '11-agent[test]'
+	.venv/bin/python -m pytest -q 11-agent/tests 08-jira-integration/tests 12-scenarios/tests tests
 
 baseline: ## Tag the current known-good demo app as demo-baseline
 	python3 12-scenarios/demo.py baseline
