@@ -1,4 +1,4 @@
-# AI SRE Agent Demo: read-only diagnosis, human-gated GitOps remediation
+# AI SRE Agent Demo: read-only diagnosis, human-gated GitOps remediation test
 
 An AI agent gets paged by a real alert, investigates a Kubernetes cluster with a
 **read-only** kubeconfig, and proposes the fix as a **pull request**. A human
