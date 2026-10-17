@@ -31,7 +31,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: checkout
-          image: ghcr.io/stefanprodan/podinfo:6.15.0-hotfix1
+          image: ghcr.io/stefanprodan/podinfo:6.15.0
           imagePullPolicy: IfNotPresent
           command:
             - ./podinfo
