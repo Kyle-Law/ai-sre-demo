@@ -37,4 +37,10 @@ for label in "ai-generated:7057ff:Opened by the AI SRE agent" "incident:d73a4a:I
   IFS=: read -r name color desc <<<"$label"
   gh label create "$name" --repo "${GITHUB_REPO}" --color "$color" --description "$desc" --force >/dev/null
 done
-echo "Done. Make sure ${GITHUB_AGENT_LOGIN} has Write (not Admin/Maintain) access to the repo."
+if [[ "${GITHUB_AGENT_LOGIN}" == *"[bot]" ]]; then
+  slug="${GITHUB_AGENT_LOGIN%\[bot\]}"
+  echo "Done. Make sure the GitHub App is installed on ${GITHUB_REPO} only:"
+  echo "  https://github.com/apps/${slug}/installations/new"
+else
+  echo "Done. Make sure ${GITHUB_AGENT_LOGIN} has Write (not Admin/Maintain) access to the repo."
+fi

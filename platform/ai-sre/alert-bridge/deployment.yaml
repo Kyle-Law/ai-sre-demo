@@ -1,7 +1,7 @@
 # Grafana webhook -> Jira ticket bridge. Python stdlib only, so it runs on the
 # stock python image with the code mounted from a ConfigMap (no image build).
 # Jira credentials come from the "jira-credentials" Secret created by
-# infra/cluster-vm/install.sh (never committed to git).
+# infra/kind/up.sh (never committed to git).
 apiVersion: apps/v1
 kind: Deployment
 metadata:

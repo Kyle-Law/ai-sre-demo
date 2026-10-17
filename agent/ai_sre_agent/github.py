@@ -1,30 +1,96 @@
-"""Minimal GitHub REST client. The token needs contents:write + pull_requests:write
-on ONE repository. Branch protection guarantees the agent cannot merge."""
+"""Minimal GitHub REST client. Credentials need contents:write + pull_requests:write
+on ONE repository. Branch protection guarantees the agent cannot merge.
+
+Preferred identity is a GitHub App (PRs are authored by `<app-slug>[bot]`, so the
+repo owner can approve them and no second user account is needed). A plain token
+(GITHUB_TOKEN) still works for bot-user setups."""
 
 from __future__ import annotations
 
 import base64
 import re
 import time
+from datetime import datetime
+from pathlib import Path
 
+import jwt
 import requests
 
 from .audit import AuditLog
 
+_GH_HEADERS = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+# Installation tokens are narrowed to exactly what the agent needs, even if the
+# App itself was (mis)configured with more.
+APP_TOKEN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "metadata": "read"}
+
+
+class AppAuth(requests.auth.AuthBase):
+    """Authenticate as a GitHub App installation. Signs a short JWT with the App's
+    private key, exchanges it for a 1-hour installation token scoped to one repo,
+    and renews that token 5 minutes before it expires."""
+
+    def __init__(self, api_url: str, app_id: str, private_key: str, repo: str,
+                 installation_id: str = "", session: requests.Session | None = None, clock=time.time):
+        self.api = api_url
+        self.app_id = str(app_id)
+        self.private_key = private_key
+        self.repo = repo
+        self.installation_id = str(installation_id or "")
+        self.session = session or requests.Session()
+        self.clock = clock
+        self._token = ""
+        self._expires = 0.0
+
+    def _app_jwt(self) -> str:
+        now = int(self.clock())
+        # iat backdated for clock drift; GitHub caps exp at 10 minutes.
+        return jwt.encode({"iat": now - 60, "exp": now + 540, "iss": self.app_id}, self.private_key, algorithm="RS256")
+
+    def _call(self, method: str, path: str, **kwargs) -> dict:
+        headers = {**_GH_HEADERS, "Authorization": f"Bearer {self._app_jwt()}"}
+        resp = self.session.request(method, f"{self.api}{path}", headers=headers, timeout=30, **kwargs)
+        if resp.status_code not in (200, 201):
+            raise RuntimeError(f"GitHub App {method} {path} -> {resp.status_code}: {resp.text[:400]}")
+        return resp.json()
+
+    def token(self) -> str:
+        if self._token and self.clock() < self._expires - 300:
+            return self._token
+        if not self.installation_id:
+            # 404 here means the App is not installed on the repo yet.
+            self.installation_id = str(self._call("GET", f"/repos/{self.repo}/installation")["id"])
+        data = self._call("POST", f"/app/installations/{self.installation_id}/access_tokens",
+                          json={"repositories": [self.repo.split("/", 1)[1]], "permissions": APP_TOKEN_PERMISSIONS})
+        self._token = data["token"]
+        self._expires = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00")).timestamp()
+        return self._token
+
+    def __call__(self, r):
+        r.headers["Authorization"] = f"Bearer {self.token()}"
+        return r
+
+
+def auth_from_config(cfg) -> str | AppAuth:
+    if cfg.github_app_id:
+        key = Path(cfg.github_app_private_key_path).expanduser().read_text()
+        return AppAuth(cfg.github_api_url, cfg.github_app_id, key, cfg.github_repo, cfg.github_app_installation_id)
+    return cfg.github_token
+
 
 class GitHub:
-    def __init__(self, api_url: str, token: str, repo: str, base_branch: str, audit: AuditLog, dry_run: bool = False):
+    def __init__(self, api_url: str, auth: str | requests.auth.AuthBase, repo: str, base_branch: str,
+                 audit: AuditLog, dry_run: bool = False):
         self.api = api_url
         self.repo = repo
         self.base = base_branch
         self.audit = audit
         self.dry_run = dry_run
         self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
+        self.session.headers.update(_GH_HEADERS)
+        if isinstance(auth, str):
+            self.session.headers["Authorization"] = f"Bearer {auth}"
+        else:
+            self.session.auth = auth
 
     def _req(self, method: str, path: str, ok=(200, 201), **kwargs):
         resp = self.session.request(method, f"{self.api}{path}", timeout=30, **kwargs)

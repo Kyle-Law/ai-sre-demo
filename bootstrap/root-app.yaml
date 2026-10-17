@@ -1,4 +1,4 @@
-# App-of-apps. Apply once by hand (infra/cluster-vm/install.sh does it);
+# App-of-apps. Apply once by hand (infra/kind/up.sh does it);
 # from then on, everything in argocd/apps/ is managed from git.
 apiVersion: argoproj.io/v1alpha1
 kind: Application

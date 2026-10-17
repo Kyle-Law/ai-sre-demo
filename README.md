@@ -12,7 +12,7 @@ flowchart LR
     P --> G[Grafana alert rule]
     G -->|webhook| B[alert-bridge]
     B -->|create / correlate| J[(Jira ticket<br/>label ai-triage)]
-    J -->|poll| AG[AI agent VM<br/>read-only kubeconfig]
+    J -->|poll| AG[AI agent<br/>read-only kubeconfig]
     AG -->|kubectl get/describe/logs<br/>PromQL, git history| A
     AG -->|open PR + incident record| GH[GitHub PR]
     GH -->|review + merge| H((Human))
@@ -29,12 +29,12 @@ flowchart LR
 | Agent's cluster identity can only `get/list/watch`; no Secrets, exec, port-forward, impersonation | `platform/ai-sre/rbac.yaml`, proven by `scripts/verify-rbac.sh` |
 | Short-lived bound ServiceAccount token (default 48h) | `scripts/generate-agent-kubeconfig.sh` |
 | Agent also refuses non-read kubectl verbs and Secret reads before calling the API | `agent/ai_sre_agent/kube.py` |
-| Agent can open PRs, never merge: branch protection + CODEOWNERS + required checks | `scripts/github-setup.sh`, `.github/` |
+| Agent is a GitHub App on one repo: opens PRs, never merges (branch protection + CODEOWNERS + required checks); 1h tokens | `scripts/create-github-app.py`, `scripts/github-setup.sh`, `.github/` |
 | CI fails agent PRs that touch anything outside `apps/` or `incidents/` | `.github/workflows/pr-checks.yaml` |
 | ArgoCD project for `apps/shop` cannot create RBAC, Secrets or cluster objects | `argocd/apps/project-shop.yaml` |
 | Proposed files are YAML-validated, size-limited and kind-checked before a PR exists | `agent/ai_sre_agent/diagnose.py` |
 | Logs, events and ticket text are treated as untrusted data (prompt-injection guard) | `agent/ai_sre_agent/prompts.py` |
-| Every tool call and external write is recorded | `/var/log/ai-sre-agent/audit.jsonl` |
+| Every tool call and external write is recorded | `.agent/audit.jsonl` |
 
 Details: [docs/SECURITY.md](docs/SECURITY.md).
 
@@ -49,9 +49,8 @@ platform/monitoring-config/      Grafana alert rules, contact point, notificatio
 platform/ai-sre/                 Agent RBAC + Grafana->Jira alert bridge
 agent/                           The AI SRE agent (Python, Claude API) + tests
 scenarios/                       Failure injection: 6 scenarios + reset
-infra/cluster-vm/install.sh      k3s + ArgoCD + secrets + bootstrap
-infra/agent-vm/setup.sh          Agent VM: user, venv, kubeconfig, hardened systemd unit
-scripts/                         kubeconfig minting, RBAC proof, Grafana token, GitHub guardrails
+infra/kind/                      Local kind cluster + ArgoCD + metrics-server + secrets + bootstrap
+scripts/                         GitHub App, kubeconfig minting, RBAC proof, Grafana token, guardrails, run-agent
 incidents/                       Incident records committed by agent PRs
 docs/                            Setup guide, demo runbook, security model, troubleshooting
 ```
@@ -63,12 +62,13 @@ Full walkthrough with every account and command: **[docs/SETUP.md](docs/SETUP.md
 ```bash
 cp demo.env.example demo.env && $EDITOR demo.env
 ./scripts/configure-repo.sh && git add -A && git commit -m "configure" && git push
+make github-app                                   # agent's GitHub App (one click), install on the repo
 ./scripts/github-setup.sh                         # branch protection + CI guard
-sudo ./infra/cluster-vm/install.sh                # on the cluster VM
-./scripts/create-grafana-token.sh                 # -> agent env
-./scripts/generate-agent-kubeconfig.sh --out agent.kubeconfig
-KUBECONFIG=agent.kubeconfig ./scripts/verify-rbac.sh
-sudo ./infra/agent-vm/setup.sh agent.kubeconfig agent.env   # on the agent VM
+make cluster-up                                   # kind + ArgoCD; ArgoCD deploys the rest from git
+./scripts/create-grafana-token.sh                 # -> agent.env
+make agent-kubeconfig verify-rbac                 # read-only kubeconfig, proven
+cp agent/.env.example agent.env && $EDITOR agent.env
+make agent-selftest && DRY_RUN=true make agent    # rehearse without writing anything
 python3 scenarios/demo.py baseline
 ```
 

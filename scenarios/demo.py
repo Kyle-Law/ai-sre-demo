@@ -20,8 +20,8 @@ Options:
     --no-push      commit locally only (rehearsal / review the diff first)
     --dry-run      print what would change, touch nothing
 
-Stdlib only. Scenario 06 additionally needs an *admin* kubectl context (run it
-on the cluster VM or with KUBECONFIG pointing at the admin kubeconfig).
+Stdlib only. Scenario 06 additionally needs an *admin* kubectl context (the
+kind-ai-sre context that `make cluster-up` selects).
 """
 
 from __future__ import annotations

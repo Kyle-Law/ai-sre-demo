@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Cluster VM bootstrap: k3s + ArgoCD + secrets + app-of-apps.
-# Run on the cluster VM (Ubuntu 22.04/24.04, 4 vCPU / 8 GB recommended):
-#   sudo ./infra/cluster-vm/install.sh
-# Idempotent: safe to re-run.
+# Local kind cluster bootstrap: kind + metrics-server + ArgoCD + secrets + app-of-apps.
+# Needs Docker (Docker Desktop: 4 CPU / 8 GB recommended), kind and kubectl.
+#   ./infra/kind/up.sh          (or: make cluster-up)
+# Idempotent: safe to re-run. Tear down with: make cluster-down
+# DEMO_ENV=path/to/other.env overrides ./demo.env.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-# shellcheck disable=SC1091
-source ./demo.env
+# shellcheck disable=SC1090
+source "${DEMO_ENV:-./demo.env}"
 
-: "${CLUSTER_VM_IP:?}" "${GITHUB_REPO:?}" "${ARGOCD_VERSION:?}"
+: "${GITHUB_REPO:?}" "${ARGOCD_VERSION:?}"
 : "${GRAFANA_ADMIN_PASSWORD:?}" "${JIRA_BASE_URL:?}" "${JIRA_EMAIL:?}" "${JIRA_API_TOKEN:?}" "${JIRA_PROJECT_KEY:?}"
+CLUSTER="${KIND_CLUSTER_NAME:-ai-sre}"
+METRICS_SERVER_VERSION="${METRICS_SERVER_VERSION:-v0.9.0}"
 REPO_URL="https://github.com/${GITHUB_REPO}.git"
-TARGET_USER="${SUDO_USER:-$(whoami)}"
-TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
@@ -20,23 +21,32 @@ if grep -q 'YOUR_GITHUB_ORG' bootstrap/root-app.yaml; then
   echo "Run ./scripts/configure-repo.sh and push to GitHub first." >&2
   exit 1
 fi
+for bin in docker kind kubectl; do
+  command -v "$bin" >/dev/null || { echo "$bin not found (brew install $bin)" >&2; exit 1; }
+done
+docker info >/dev/null 2>&1 || { echo "Docker is not running - start Docker Desktop first." >&2; exit 1; }
+MEM_GB=$(( $(docker info --format '{{.MemTotal}}') / 1024 / 1024 / 1024 ))
+(( MEM_GB >= 6 )) || echo "WARNING: Docker has ${MEM_GB} GB RAM; Prometheus + ArgoCD want ~6 GB (Docker Desktop > Settings > Resources)." >&2
 
-step "Installing k3s"
-if ! command -v k3s >/dev/null; then
-  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --tls-san ${CLUSTER_VM_IP} --disable traefik --write-kubeconfig-mode 600" sh -
+step "kind cluster '${CLUSTER}'"
+if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
+  kind create cluster --name "$CLUSTER" --config infra/kind/cluster.yaml --wait 120s
 fi
-mkdir -p "${TARGET_HOME}/.kube"
-cp /etc/rancher/k3s/k3s.yaml "${TARGET_HOME}/.kube/config"
-chown -R "${TARGET_USER}:" "${TARGET_HOME}/.kube"
-chmod 600 "${TARGET_HOME}/.kube/config"
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-until kubectl get nodes 2>/dev/null | grep -q ' Ready'; do sleep 3; done
+kubectl config use-context "kind-${CLUSTER}" >/dev/null
 kubectl get nodes -o wide
+
+step "metrics-server ${METRICS_SERVER_VERSION} (for kubectl top)"
+kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml" >/dev/null
+# kind kubelets serve self-signed certs.
+if ! kubectl -n kube-system get deploy metrics-server -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q kubelet-insecure-tls; then
+  kubectl -n kube-system patch deploy metrics-server --type json \
+    -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+fi
 
 step "Installing ArgoCD ${ARGOCD_VERSION}"
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -n argocd --server-side --force-conflicts \
-  -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
+  -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml" >/dev/null
 # Poll git every 30s instead of 3m so merged PRs roll out quickly in the demo.
 kubectl -n argocd patch configmap argocd-cm --type merge -p '{"data":{"timeout.reconciliation":"30s"}}'
 kubectl -n argocd patch svc argocd-server --type merge \
@@ -83,15 +93,14 @@ done
 ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
 cat <<EOF
 
-Cluster ready.
-  ArgoCD : https://${CLUSTER_VM_IP}:30443   (admin / ${ARGO_PW})
-  Grafana: http://${CLUSTER_VM_IP}:30300    (${GRAFANA_ADMIN_USER:-admin} / from demo.env)
+Cluster ready (kubectl context kind-${CLUSTER}).
+  ArgoCD : https://localhost:30443   (admin / ${ARGO_PW})
+  Grafana: http://localhost:30300    (${GRAFANA_ADMIN_USER:-admin} / from demo.env)
   App    : kubectl -n shop port-forward svc/checkout 9898:80
 
-Next steps (on this VM):
-  ./scripts/verify-platform.sh
-  ./scripts/create-grafana-token.sh                  # -> GRAFANA_TOKEN for the agent
-  ./scripts/generate-agent-kubeconfig.sh --out agent.kubeconfig
-  KUBECONFIG=agent.kubeconfig ./scripts/verify-rbac.sh
-  scp agent.kubeconfig <agent-vm>:/tmp/
+Next steps:
+  make verify                    # platform health check
+  ./scripts/create-grafana-token.sh   # -> GRAFANA_TOKEN in agent.env
+  make agent-kubeconfig verify-rbac
+  make agent-selftest
 EOF

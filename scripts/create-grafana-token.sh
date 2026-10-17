@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
 source ./demo.env
-GRAFANA="http://${CLUSTER_VM_IP}:30300"
+GRAFANA="${GRAFANA_URL:-http://localhost:30300}"
 AUTH="${GRAFANA_ADMIN_USER:-admin}:${GRAFANA_ADMIN_PASSWORD}"
 NAME=ai-sre-agent
 
@@ -22,6 +22,6 @@ fi
 TOKEN=$(api -X POST "${GRAFANA}/api/serviceaccounts/${SA_ID}/tokens" \
   -d "{\"name\":\"${NAME}-$(date +%s)\",\"secondsToLive\":604800}" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['key'])")
-echo "Token valid for 7 days. Put this in the agent env file:" >&2
+echo "Token valid for 7 days. Put this in agent.env:" >&2
 echo "GRAFANA_URL=${GRAFANA}"
 echo "GRAFANA_TOKEN=${TOKEN}"

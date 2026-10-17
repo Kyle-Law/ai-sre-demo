@@ -44,13 +44,16 @@ class Config:
     jira_transition_review: str
     jira_transition_done: str
 
-    # GitHub (agent can open PRs, never merge)
+    # GitHub (agent can open PRs, never merge). Either a GitHub App (preferred) or a token.
     github_token: str
     github_repo: str
     github_base_branch: str
     github_api_url: str
     github_reviewers: list[str] = field(default_factory=list)
     allowed_paths: list[str] = field(default_factory=list)
+    github_app_id: str = ""
+    github_app_private_key_path: str = ""
+    github_app_installation_id: str = ""  # optional: looked up from the repo when empty
 
     # Loop behaviour
     poll_seconds: int = 20
@@ -60,8 +63,8 @@ class Config:
     max_attempts: int = 2
 
     # Storage / audit
-    state_db: str = "/var/lib/ai-sre-agent/state.db"
-    audit_log: str = "/var/log/ai-sre-agent/audit.jsonl"
+    state_db: str = ".agent/state.db"
+    audit_log: str = ".agent/audit.jsonl"
 
     # Safety
     dry_run: bool = False
@@ -74,11 +77,16 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
+        app_id = _env("GITHUB_APP_ID")
+        if app_id and not _env("GITHUB_APP_PRIVATE_KEY_PATH"):
+            raise SystemExit("GITHUB_APP_ID is set but GITHUB_APP_PRIVATE_KEY_PATH is missing")
+        if not app_id and not _env("GITHUB_TOKEN"):
+            raise SystemExit("Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY_PATH (GitHub App) or GITHUB_TOKEN")
         return cls(
             anthropic_api_key=_env("ANTHROPIC_API_KEY", required=True),
             model=_env("AGENT_MODEL", "claude-sonnet-5-5"),
             max_turns=int(_env("AGENT_MAX_TURNS", "30")),
-            kubeconfig=_env("KUBECONFIG", "/etc/ai-sre-agent/kubeconfig"),
+            kubeconfig=_env("KUBECONFIG", "agent.kubeconfig"),
             kubectl_bin=_env("KUBECTL_BIN", "kubectl"),
             argocd_namespace=_env("ARGOCD_NAMESPACE", "argocd"),
             grafana_url=_env("GRAFANA_URL", required=True).rstrip("/"),
@@ -92,7 +100,10 @@ class Config:
             jira_transition_start=_env("JIRA_TRANSITION_START", "In Progress"),
             jira_transition_review=_env("JIRA_TRANSITION_REVIEW", "In Review"),
             jira_transition_done=_env("JIRA_TRANSITION_DONE", "Done"),
-            github_token=_env("GITHUB_TOKEN", required=True),
+            github_token=_env("GITHUB_TOKEN"),
+            github_app_id=app_id,
+            github_app_private_key_path=_env("GITHUB_APP_PRIVATE_KEY_PATH"),
+            github_app_installation_id=_env("GITHUB_APP_INSTALLATION_ID"),
             github_repo=_env("GITHUB_REPO", required=True),
             github_base_branch=_env("GITHUB_BASE_BRANCH", "main"),
             github_api_url=_env("GITHUB_API_URL", "https://api.github.com").rstrip("/"),
@@ -103,7 +114,7 @@ class Config:
             verify_timeout_seconds=int(_env("VERIFY_TIMEOUT_SECONDS", "900")),
             sync_timeout_seconds=int(_env("SYNC_TIMEOUT_SECONDS", "600")),
             max_attempts=int(_env("MAX_ATTEMPTS", "2")),
-            state_db=_env("STATE_DB", "/var/lib/ai-sre-agent/state.db"),
-            audit_log=_env("AUDIT_LOG", "/var/log/ai-sre-agent/audit.jsonl"),
+            state_db=_env("STATE_DB", ".agent/state.db"),
+            audit_log=_env("AUDIT_LOG", ".agent/audit.jsonl"),
             dry_run=_bool("DRY_RUN", False),
         )

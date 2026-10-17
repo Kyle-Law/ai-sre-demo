@@ -6,14 +6,14 @@
 2. **Jira**: the INC board, filtered on `labels = ai-triage`
 3. **GitHub**: the repo's Pull requests tab
 4. **ArgoCD**: the `shop` application tree
-5. **Terminal A** (agent VM): `journalctl -fu ai-sre-agent`
-6. **Terminal B** (workstation): repo checkout for `scenarios/demo.py`
+5. **Terminal A**: `make agent` (the agent's live log)
+6. **Terminal B**: repo checkout for `scenarios/demo.py`
 
 ## T-30 min
 
 ```bash
-./scripts/verify-platform.sh                  # all OK
-sudo ai-sre-agent selftest                    # agent VM, all PASS
+make verify                                   # all OK (Docker Desktop running)
+make agent-selftest                           # all PASS
 python3 scenarios/demo.py status              # "Active scenario: none", no drift
 ```
 
@@ -28,7 +28,8 @@ Confirm the agent kubeconfig token hasn't expired (the expiry is in the file hea
   ```
   Talking point: *"It can see everything it needs to diagnose, and nothing that lets it change the
   cluster. No Secrets, no exec. The final line is a real delete attempt the API server rejects."*
-- Show branch protection: one approval, CODEOWNERS, required checks. The bot has Write, not Admin.
+- Show branch protection: one approval, CODEOWNERS, required checks. The agent is a GitHub App
+  installed on this one repo: it can open PRs, it can't approve or merge them.
 
 ## 2. Break production (1 min)
 
@@ -84,7 +85,7 @@ keep. The toil of finding the commit, gathering evidence and writing the fix is 
 
 ```bash
 python3 scenarios/demo.py reset
-python3 scenarios/demo.py inject 06-node-cordoned   # needs an admin kubeconfig
+python3 scenarios/demo.py inject 06-node-cordoned   # uses your admin kind-ai-sre context
 ```
 
 The agent finds the node is cordoned, explains that this isn't fixable in git, labels the ticket
@@ -92,7 +93,7 @@ The agent finds the node is cordoned, explains that this isn't fixable in git, l
 
 ## 8. Close (2 min)
 
-Show the audit log (`sudo tail -n 20 /var/log/ai-sre-agent/audit.jsonl | jq .`), then recap the
+Show the audit log (`tail -n 20 .agent/audit.jsonl | jq .`), then recap the
 trust boundary: **read-only eyes, git-only hands, human-gated merge, Argo applies, agent verifies.**
 
 ## Between runs
@@ -108,10 +109,10 @@ Close the old Jira ticket, and wait for the `shop` app to show Synced/Healthy.
 | Symptom | Quick fix |
 |---|---|
 | No ticket after 3 min | Grafana → Alert rules: is it Firing? `kubectl -n ai-sre logs deploy/alert-bridge` |
-| Ticket but agent silent | `journalctl -u ai-sre-agent -n 50`. Usually an expired kubeconfig or wrong `JIRA_PROJECT_KEY` |
+| Ticket but agent silent | Check Terminal A. Usually an expired kubeconfig (`make agent-kubeconfig`) or wrong `JIRA_PROJECT_KEY` |
 | PR merged but nothing syncs | ArgoCD → shop → Refresh (polls every 30s) |
 | Verification slow | Expected `VERIFY_STABLE_SECONDS` (90s). Lower to 45 for the stage |
-| Total failure | Narrate with `sudo ai-sre-agent diagnose INC-x` (prints the diagnosis and PR without writing) |
+| Total failure | Narrate with `./scripts/run-agent.sh diagnose INC-x` (prints the diagnosis and PR without writing) |
 
 ## Timing knobs
 

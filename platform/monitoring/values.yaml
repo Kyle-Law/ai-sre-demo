@@ -1,4 +1,4 @@
-# Values for kube-prometheus-stack, tuned for a single-node k3s demo cluster.
+# Values for kube-prometheus-stack, tuned for a single-node kind demo cluster.
 
 crds:
   enabled: true
@@ -11,7 +11,8 @@ alertmanager:
 defaultRules:
   create: false
 
-# k3s embeds these components; scraping them only produces "target down" noise.
+# On kind these control-plane components listen on 127.0.0.1 only; scraping them
+# just produces "target down" noise.
 kubeControllerManager:
   enabled: false
 kubeScheduler:
@@ -19,6 +20,11 @@ kubeScheduler:
 kubeProxy:
   enabled: false
 kubeEtcd:
+  enabled: false
+
+# The alert rules only use kube-state-metrics. node-exporter's host root mount
+# also fails on Docker Desktop (rootfs is not a shared mount).
+nodeExporter:
   enabled: false
 
 prometheus:
@@ -32,7 +38,7 @@ prometheus:
         memory: 512Mi
 
 grafana:
-  # Admin credentials come from a Secret created by infra/cluster-vm/install.sh
+  # Admin credentials come from a Secret created by infra/kind/up.sh
   admin:
     existingSecret: grafana-admin
     userKey: admin-user
@@ -43,7 +49,7 @@ grafana:
   grafana.ini:
     server:
       # Used to build links in alert notifications (and therefore in Jira).
-      root_url: GRAFANA_PUBLIC_URL
+      root_url: http://localhost:30300/
     unified_alerting:
       enabled: true
     users:

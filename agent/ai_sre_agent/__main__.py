@@ -1,6 +1,6 @@
 """CLI entry point.
 
-    python -m ai_sre_agent run              # main loop (systemd runs this)
+    python -m ai_sre_agent run              # main loop (scripts/run-agent.sh runs this)
     python -m ai_sre_agent once             # a single poll cycle
     python -m ai_sre_agent diagnose INC-12  # investigate one ticket, print findings, write nothing
     python -m ai_sre_agent status           # incidents in the local state DB
@@ -19,7 +19,7 @@ from . import formatting as fmt
 from .audit import AuditLog
 from .config import Config
 from .diagnose import Diagnoser
-from .github import GitHub
+from .github import GitHub, auth_from_config
 from .grafana import Grafana
 from .jira import Jira
 from .kube import Kubectl
@@ -34,7 +34,7 @@ def build(cfg: Config, dry_run: bool | None = None) -> Agent:
     audit = AuditLog(cfg.audit_log)
     kube = Kubectl(cfg.kubeconfig, cfg.kubectl_bin)
     grafana = Grafana(cfg.grafana_url, cfg.grafana_token, cfg.grafana_prom_uid)
-    github = GitHub(cfg.github_api_url, cfg.github_token, cfg.github_repo, cfg.github_base_branch, audit, dry)
+    github = GitHub(cfg.github_api_url, auth_from_config(cfg), cfg.github_repo, cfg.github_base_branch, audit, dry)
     jira = Jira(cfg.jira_base_url, cfg.jira_email, cfg.jira_api_token, cfg.jira_project_key, audit, dry)
     diagnoser = Diagnoser(cfg, kube, grafana, github, audit)
     return Agent(cfg, jira, github, kube, grafana, diagnoser, StateStore(cfg.state_db), audit)
@@ -178,7 +178,7 @@ def _status_defaults() -> dict:
         "grafana_token", "grafana_prom_uid", "jira_base_url", "jira_email", "jira_api_token",
         "jira_project_key", "jira_triage_label", "jira_transition_start", "jira_transition_review",
         "jira_transition_done", "github_token", "github_repo", "github_base_branch", "github_api_url"], "")
-    return {**empty, "max_turns": 0, "state_db": "/var/lib/ai-sre-agent/state.db"}
+    return {**empty, "max_turns": 0, "state_db": ".agent/state.db"}
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ passes through a human-reviewed pull request and is applied by ArgoCD, never by 
 |---|---|---|
 | AI agent (K8s) | get/list/watch workloads, pods, logs, events, nodes, metrics; ConfigMaps in `shop`; ArgoCD Applications | any write; Secrets; exec / attach / port-forward; token requests; impersonation; ConfigMaps outside `shop` |
 | AI agent (Grafana) | PromQL queries, read alert state (Viewer) | edit rules, dashboards, contact points |
-| AI agent (GitHub) | create branches, commit, open PRs | merge (branch protection), approve own PR, bypass checks, admin settings |
+| AI agent (GitHub App) | create branches, commit, open PRs on the one repo it's installed on | merge (branch protection), approve own PR, bypass checks, admin settings, any other repo |
 | AI agent (Jira) | comment, transition, add labels on project tickets | anything outside the project's permission scheme |
 | Alert bridge | create tickets / comment in one Jira project | read cluster state (no ServiceAccount token mounted) |
 | Human reviewer | approve and merge | — |
@@ -35,14 +35,20 @@ passes through a human-reviewed pull request and is applied by ArgoCD, never by 
 
 | Secret | Lives in | Lifetime |
 |---|---|---|
-| Agent kubeconfig (bound SA token) | `/etc/ai-sre-agent/kubeconfig` on the agent VM, 0640 root:aisre | `--duration` (default 48h) |
+| Agent kubeconfig (bound SA token) | `agent.kubeconfig` (0600) | `--duration` (default 48h) |
 | Grafana Viewer token | `agent.env` | 7 days |
-| GitHub fine-grained PAT (bot) | `agent.env` | 7–30 days, one repo |
+| GitHub App private key | `github-app.pem` (0600) | until revoked in the App settings; it only mints tokens |
+| GitHub App installation token | agent memory only | 1 hour, one repo, Contents + Pull requests |
 | Jira API token (bot) | `agent.env`, plus a K8s Secret for the bridge | per Atlassian policy |
 | Anthropic API key | `agent.env` | rotate after the demo |
 | Grafana admin password | K8s Secret `monitoring/grafana-admin` | — |
 
-Nothing above is committed to git (`.gitignore` covers `demo.env`, `*.kubeconfig`, `agent.env`).
+Nothing above is committed to git (`.gitignore` covers `demo.env`, `*.kubeconfig`, `agent.env`, `*.pem`).
+
+**Local-demo caveat:** the agent runs as your macOS user, so OS-level isolation from your admin
+kubeconfig is not enforced; `scripts/run-agent.sh` only makes sure the agent *process* is handed
+`agent.kubeconfig` and never your `KUBECONFIG`. In production, run the agent on its own host or pod
+with only its own credentials mounted.
 
 ## Data sent to the model
 
@@ -56,12 +62,12 @@ review log contents for PII and use a dedicated API workspace with appropriate d
   sync, verification, MTTR.
 - **Git**: the PR conversation, the merge commit, and `incidents/<KEY>.md`.
 - **ArgoCD**: sync history with revisions.
-- **Agent audit log** (`audit.jsonl`): every tool call with input and truncated output, every
+- **Agent audit log** (`.agent/audit.jsonl`): every tool call with input and truncated output, every
   external write, every state transition.
 
 ## Going beyond the demo
 
-- Replace the PAT with a GitHub App (short-lived installation tokens).
+- Keep the GitHub App key in a secret manager or HSM instead of a file.
 - Issue the kubeconfig through your identity provider or an external secret store, rotated automatically.
 - Ship `audit.jsonl` to your SIEM.
 - Add an OPA/Kyverno admission policy as one more gate behind ArgoCD.

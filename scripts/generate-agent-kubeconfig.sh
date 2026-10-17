@@ -2,8 +2,8 @@
 # Mint a short-lived, read-only kubeconfig for the AI agent from the
 # ai-sre/ai-sre-agent ServiceAccount (RBAC in platform/ai-sre/rbac.yaml).
 #
-# Run with an ADMIN kubeconfig (e.g. on the cluster VM):
-#   ./scripts/generate-agent-kubeconfig.sh --out agent.kubeconfig [--duration 48h] [--server https://IP:6443]
+# Run with an ADMIN kubeconfig (the kind-ai-sre context that `make cluster-up` sets):
+#   ./scripts/generate-agent-kubeconfig.sh --out agent.kubeconfig [--duration 48h] [--server https://HOST:PORT]
 #
 # The token is a bound ServiceAccount token: it expires (default 48h) and is
 # revoked if the ServiceAccount is deleted. Re-run to rotate.
@@ -25,13 +25,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$SERVER" ]]; then
-  if [[ -f demo.env ]]; then
-    # shellcheck disable=SC1091
-    source demo.env
-    SERVER="https://${CLUSTER_VM_IP}:6443"
-  else
-    SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
-  fi
+  SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
 fi
 
 kubectl -n "$NAMESPACE" get serviceaccount "$SA" >/dev/null \
@@ -39,7 +33,8 @@ kubectl -n "$NAMESPACE" get serviceaccount "$SA" >/dev/null \
 
 CA_DATA=$(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
 TOKEN=$(kubectl -n "$NAMESPACE" create token "$SA" --duration="$DURATION")
-EXPIRES=$(date -u -d "+${DURATION%h} hours" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "in ${DURATION}")
+EXPIRES=$(date -u -d "+${DURATION%h} hours" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+  || date -u -v+"${DURATION%h}"H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "in ${DURATION}")
 
 umask 077
 cat > "$OUT" <<EOF
