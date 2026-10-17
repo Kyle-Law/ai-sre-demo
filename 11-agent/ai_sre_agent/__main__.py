@@ -105,7 +105,7 @@ def cmd_selftest(cfg: Config) -> int:
     check("Grafana / Prometheus query", lambda: str(agent.grafana.promql("up").get("status")))
     check("Grafana alert state", lambda: f"{len(agent.grafana.active_alerts())} active")
     check("Jira triage queue", lambda: f"{len(agent.jira.triage_queue(cfg.jira_triage_label))} open")
-    check("GitHub repo read", lambda: ", ".join(agent.github.list_dir("apps")[:5]))
+    check("GitHub repo read", lambda: ", ".join(agent.github.list_dir(cfg.allowed_paths[0].rstrip("/"))[:5]))
 
     print("\nRBAC (expect read allowed, everything else denied)")
     matrix = [
