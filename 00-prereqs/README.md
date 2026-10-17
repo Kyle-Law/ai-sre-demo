@@ -19,7 +19,7 @@ GitHub so ArgoCD (step 04) has something to deploy from.
 | Account | Used from | Notes |
 |---|---|---|
 | GitHub | step 04 (ArgoCD pulls), step 10 (guardrails), step 11 (agent PRs) | A **public** repo you own: ArgoCD needs no credentials and branch protection is free |
-| Jira Cloud | step 08 (alert bridge), step 11 (agent) | Free `*.atlassian.net` site, a project with key `INC`, an API token |
+| Jira Cloud | step 08 (alert bridge), step 11 (agent) | Free `*.atlassian.net` site, a project (any key, e.g. `INC` or `SUP`) with a **Task** issue type, an API token |
 | Anthropic | step 11 | API key for the agent's model calls |
 
 ## Configure

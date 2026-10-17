@@ -57,6 +57,9 @@ class Jira:
                f"AND statusCategory != Done ORDER BY created ASC")
         return self.search(jql)
 
+    def get_project(self) -> dict:
+        return self._req("GET", f"/rest/api/2/project/{self.project}")
+
     def get_issue(self, key: str) -> dict:
         return self._req(
             "GET", f"/rest/api/2/issue/{key}",

@@ -34,6 +34,8 @@ cp 11-agent/.env.example agent.env && chmod 600 agent.env && $EDITOR agent.env
 #   ANTHROPIC_API_KEY
 #   GRAFANA_TOKEN            <- 09-agent-access/create-grafana-token.sh
 #   JIRA_*                   (same site/project as step 08)
+#   JIRA_TRANSITION_*        your workflow's status names. Software project: "In Progress" / "In Review" / Done;
+#                            Service-desk Task: "Work in progress" / Pending / Done
 #   GITHUB_APP_ID            <- step 10 output; GITHUB_APP_PRIVATE_KEY_PATH=github-app.pem
 #   GITHUB_REPO, GITHUB_REVIEWERS=<your github user>
 ```

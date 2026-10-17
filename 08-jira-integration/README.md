@@ -26,7 +26,7 @@ ticket, and the ticket gets the `ai-triage` label the agent (step 11) watches fo
 
 ## Run
 
-Fill in `JIRA_*` in `demo.env` first (Jira project key `INC`; an API token from
+Fill in `JIRA_*` in `demo.env` first (any project key whose project has a **Task** issue type; an API token from
 <https://id.atlassian.com/manage-profile/security/api-tokens>).
 
 ```bash
