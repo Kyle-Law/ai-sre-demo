@@ -24,7 +24,7 @@ spec:
         app: checkout
       annotations:
         # Bump to roll pods after a ConfigMap change.
-        demo.ai-sre/config-revision: "1"
+        demo.ai-sre/config-revision: "2"
     spec:
       securityContext:
         seccompProfile:
