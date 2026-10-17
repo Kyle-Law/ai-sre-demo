@@ -1,15 +1,15 @@
-# 12 · Failure scenarios
+# 13 · Failure scenarios
 
 **Goal:** break the demo app the way real incidents usually start, with a plausible commit pushed to
 `main`, and watch the whole chain react: ArgoCD rolls it out (04), Grafana alerts (07), the bridge
 opens a Jira ticket (08), and the agent (11) finds the cause and proposes the fix.
 
 ```bash
-python3 12-scenarios/demo.py list               # or: make scenarios
-python3 12-scenarios/demo.py baseline           # once, on known-good main (make baseline)
-python3 12-scenarios/demo.py inject <id>        # make inject SCENARIO=<id>; --no-push / --dry-run to rehearse
-python3 12-scenarios/demo.py status             # make verify-12
-python3 12-scenarios/demo.py reset --uncordon   # make reset
+python3 13-scenarios/demo.py list               # or: make scenarios
+python3 13-scenarios/demo.py baseline           # once, on known-good main (make baseline)
+python3 13-scenarios/demo.py inject <id>        # make inject SCENARIO=<id>; --no-push / --dry-run to rehearse
+python3 13-scenarios/demo.py status             # make verify-13
+python3 13-scenarios/demo.py reset --uncordon   # make reset
 ```
 
 `inject` pushes to `main` as you. Branch protection (step 10) lets the repo admin do that; the agent
@@ -90,4 +90,4 @@ matching Grafana rule in [07-alert-rules/manifests/alert-rules.yaml](../07-alert
 if no existing rule covers it. `tests/test_repo.py` checks that every scenario has an alert rule and
 applies cleanly.
 
-**Next:** [13 · Demo runbook](../13-demo/)
+**Next:** [14 · Demo runbook](../14-demo/)

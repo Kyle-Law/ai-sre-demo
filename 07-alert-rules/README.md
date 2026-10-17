@@ -11,7 +11,7 @@ break. After this step alerts **fire in Grafana**, but they don't go anywhere ye
   read-only there.
 - **The rules** are built on kube-state-metrics (step 05):
 
-  | Rule | Fires when | Scenario (step 12) |
+  | Rule | Fires when | Scenario (step 13) |
   |---|---|---|
   | `ContainerOOMKilled` | last termination reason is OOMKilled | 01 |
   | `ContainerImagePullFailing` | waiting in ErrImagePull / ImagePullBackOff | 02 |
@@ -37,7 +37,7 @@ make verify-07      # rules loaded, every rule healthy, current state listed
 - Grafana → Explore: paste a rule's query (e.g. the `kube_pod_container_status_waiting_reason`
   one) to see what it evaluates to while everything is healthy (empty).
 - Why not break the app with `kubectl edit`? ArgoCD's self-heal reverts manual changes within ~30s.
-  To make an alert fire now, run `python3 12-scenarios/demo.py inject 02-bad-image-tag` (it pushes
+  To make an alert fire now, run `python3 13-scenarios/demo.py inject 02-bad-image-tag` (it pushes
   a bad commit) and `reset` afterwards.
 
 **Next:** [08 · Jira integration](../08-jira-integration/)

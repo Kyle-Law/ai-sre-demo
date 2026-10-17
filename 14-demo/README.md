@@ -1,6 +1,6 @@
-# 13 · Demo runbook (≈20 minutes)
+# 14 · Demo runbook (≈20 minutes)
 
-The stage script for showing the whole system end to end. Steps 01–12 must be done.
+The stage script for showing the whole system end to end. Steps 01–13 must be done.
 
 ## Screens to have open
 
@@ -9,14 +9,14 @@ The stage script for showing the whole system end to end. Steps 01–12 must be 
 3. **GitHub**: the repo's Pull requests tab
 4. **ArgoCD**: the `shop` application tree
 5. **Terminal A**: `make step-11` (the agent's live log)
-6. **Terminal B**: repo checkout for `12-scenarios/demo.py`
+6. **Terminal B**: repo checkout for `13-scenarios/demo.py`
 
 ## T-30 min
 
 ```bash
-make verify-13                                # preflight across every step, all OK
+make verify-14                                # preflight across every step, all OK
 make verify-11                                # agent selftest, all PASS
-python3 12-scenarios/demo.py status           # "Active scenario: none", no drift
+python3 13-scenarios/demo.py status           # "Active scenario: none", no drift
 ```
 
 Confirm the agent kubeconfig token hasn't expired (the expiry is in the file header).
@@ -36,7 +36,7 @@ Confirm the agent kubeconfig token hasn't expired (the expiry is in the file hea
 ## 2. Break production (1 min)
 
 ```bash
-python3 12-scenarios/demo.py inject 01-oomkilled
+python3 13-scenarios/demo.py inject 01-oomkilled
 ```
 
 Talking point: *"This is a FinOps 'rightsizing' commit. It looks reasonable and it was pushed to
@@ -86,12 +86,12 @@ keep. The toil of finding the commit, gathering evidence and writing the fix is 
 ## 7. The agent knows its limits (optional, 3 min)
 
 ```bash
-python3 12-scenarios/demo.py reset
-python3 12-scenarios/demo.py inject 06-node-cordoned   # uses your admin kind-ai-sre context
+python3 13-scenarios/demo.py reset
+python3 13-scenarios/demo.py inject 06-node-cordoned   # uses your admin kind-ai-sre context
 ```
 
 The agent finds the node is cordoned, explains that this isn't fixable in git, labels the ticket
-`needs-human` and lists next steps. **No PR.** Reset with `python3 12-scenarios/demo.py reset --uncordon`.
+`needs-human` and lists next steps. **No PR.** Reset with `python3 13-scenarios/demo.py reset --uncordon`.
 
 ## 8. Close (2 min)
 
@@ -101,7 +101,7 @@ trust boundary: **read-only eyes, git-only hands, human-gated merge, Argo applie
 ## Between runs
 
 ```bash
-python3 12-scenarios/demo.py reset --uncordon
+python3 13-scenarios/demo.py reset --uncordon
 ```
 
 Close the old Jira ticket, and wait for the `shop` app to show Synced/Healthy.

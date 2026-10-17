@@ -10,11 +10,11 @@ One scenario (06) breaks the cluster *outside* git to show the agent
 escalating instead of opening a PR.
 
 Usage (run from the repo root, with push rights to main):
-    python3 12-scenarios/demo.py list
-    python3 12-scenarios/demo.py baseline          # tag the known-good state (once)
-    python3 12-scenarios/demo.py inject 01-oomkilled
-    python3 12-scenarios/demo.py status
-    python3 12-scenarios/demo.py reset             # restore the demo app from the baseline tag
+    python3 13-scenarios/demo.py list
+    python3 13-scenarios/demo.py baseline          # tag the known-good state (once)
+    python3 13-scenarios/demo.py inject 01-oomkilled
+    python3 13-scenarios/demo.py status
+    python3 13-scenarios/demo.py reset             # restore the demo app from the baseline tag
 
 Options:
     --no-push      commit locally only (rehearsal / review the diff first)
@@ -154,7 +154,7 @@ def apply_edits(edits: list[dict], dry_run: bool) -> list[str]:
         if count != 1:
             sys.exit(
                 f"Cannot apply scenario: expected exactly 1 match in {edit['file']} but found {count}.\n"
-                f"Is another scenario still active? Run: python3 12-scenarios/demo.py reset"
+                f"Is another scenario still active? Run: python3 13-scenarios/demo.py reset"
             )
         if dry_run:
             print(f"--- {edit['file']}\n- {edit['find']!r}\n+ {edit['replace']!r}")
@@ -190,7 +190,7 @@ def cmd_baseline(args) -> None:
 def cmd_inject(args) -> None:
     sid = args.scenario
     if sid not in SCENARIOS:
-        sys.exit(f"Unknown scenario {sid}. Try: python3 12-scenarios/demo.py list")
+        sys.exit(f"Unknown scenario {sid}. Try: python3 13-scenarios/demo.py list")
     s = SCENARIOS[sid]
     print(f"Injecting {sid}: {s['title']}")
 
@@ -242,7 +242,7 @@ def cmd_reset(args) -> None:
         run(["git", "fetch", "--quiet", "origin", "tag", BASELINE_TAG], check=False)
     diff = run(["git", "diff", "HEAD", BASELINE_TAG, "--", APP_DIR], check=False, capture=True)
     if diff.returncode:
-        sys.exit(f"Tag {BASELINE_TAG} not found. Run: python3 12-scenarios/demo.py baseline")
+        sys.exit(f"Tag {BASELINE_TAG} not found. Run: python3 13-scenarios/demo.py baseline")
     if not diff.stdout:
         print(f"{APP_DIR} already matches {BASELINE_TAG}.")
     elif args.dry_run:
@@ -263,7 +263,7 @@ def cmd_status(_args) -> None:
     print(f"Active scenario: {state.get('active') or 'none'}")
     diff = run(["git", "diff", "--stat", BASELINE_TAG, "--", APP_DIR], check=False, capture=True)
     if diff.returncode:
-        print(f"(no {BASELINE_TAG} tag yet — run: python3 12-scenarios/demo.py baseline)")
+        print(f"(no {BASELINE_TAG} tag yet — run: python3 13-scenarios/demo.py baseline)")
     else:
         print(f"Drift from {BASELINE_TAG}:\n{diff.stdout or '  none'}")
     pods = run(["kubectl", "-n", "shop", "get", "pods", "-o", "wide"], check=False, capture=True)

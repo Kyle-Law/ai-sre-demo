@@ -5,11 +5,14 @@
     python -m ai_sre_agent diagnose INC-1   # investigate one ticket, print findings, write nothing
     python -m ai_sre_agent status           # incidents in the local state DB
     python -m ai_sre_agent selftest         # connectivity + proof the kubeconfig is read-only
+    python -m ai_sre_agent operator         # in-cluster controller: AgentSession per ticket (step 12)
+    python -m ai_sre_agent investigate      # in-cluster diagnosis Job: prints one Diagnosis (step 12)
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import signal
 import sys
@@ -29,19 +32,37 @@ from .workflow import Agent
 log = logging.getLogger("ai_sre_agent")
 
 
-def build(cfg: Config, dry_run: bool | None = None) -> Agent:
+def build(cfg: Config, dry_run: bool | None = None, incluster: bool = False) -> Agent:
     dry = cfg.dry_run if dry_run is None else dry_run
     audit = AuditLog(cfg.audit_log)
     kube = Kubectl(cfg.kubeconfig, cfg.kubectl_bin)
     grafana = Grafana(cfg.grafana_url, cfg.grafana_token, cfg.grafana_prom_uid)
     github = GitHub(cfg.github_api_url, auth_from_config(cfg), cfg.github_repo, cfg.github_base_branch, audit, dry)
     jira = Jira(cfg.jira_base_url, cfg.jira_email, cfg.jira_api_token, cfg.jira_project_key, audit, dry)
-    diagnoser = Diagnoser(cfg, kube, grafana, github, audit)
-    return Agent(cfg, jira, github, kube, grafana, diagnoser, StateStore(cfg.state_db), audit)
+    if incluster:
+        from .incluster import CRStateStore, JobDiagnoser, operator_settings
+        s = operator_settings()
+        diagnoser = JobDiagnoser(cfg, audit, s["job_namespace"], s["image"], s["service_account"])
+        state = CRStateStore(s["session_namespace"])
+    else:
+        diagnoser, state = Diagnoser(cfg, kube, grafana, github, audit), StateStore(cfg.state_db)
+    return Agent(cfg, jira, github, kube, grafana, diagnoser, state, audit)
 
 
-def cmd_run(cfg: Config) -> None:
-    agent = build(cfg)
+def cmd_investigate(cfg: Config) -> None:
+    """One diagnosis, read-only, result on stdout for the controller (incluster.JobDiagnoser)."""
+    import os
+    from .incluster import RESULT_MARKER
+    audit = AuditLog(cfg.audit_log)
+    github = GitHub(cfg.github_api_url, "", cfg.github_repo, cfg.github_base_branch, audit, dry_run=True)
+    diagnoser = Diagnoser(cfg, Kubectl(cfg.kubeconfig, cfg.kubectl_bin),
+                          Grafana(cfg.grafana_url, cfg.grafana_token, cfg.grafana_prom_uid), github, audit)
+    diag = diagnoser.run(os.environ["AGENT_TICKET"], os.environ["AGENT_CONTEXT"])
+    print(RESULT_MARKER + json.dumps(diag.__dict__, default=str), flush=True)
+
+
+def cmd_run(cfg: Config, incluster: bool = False) -> None:
+    agent = build(cfg, incluster=incluster)
     stop = {"flag": False}
 
     def _stop(signum, _frame):
@@ -154,6 +175,8 @@ def main() -> None:
     d.add_argument("key")
     sub.add_parser("status")
     sub.add_parser("selftest")
+    sub.add_parser("operator")
+    sub.add_parser("investigate")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -172,6 +195,10 @@ def main() -> None:
     try:
         if args.cmd == "run":
             cmd_run(cfg)
+        elif args.cmd == "operator":
+            cmd_run(cfg, incluster=True)
+        elif args.cmd == "investigate":
+            cmd_investigate(cfg)
         elif args.cmd == "once":
             agent = build(cfg)
             agent.tick()

@@ -1,0 +1,40 @@
+# One AgentSession per Jira ticket. The controller keeps the incident's whole
+# state in .status (stage, attempt, PR, timestamps), so `kubectl get agentsessions`
+# is the live incident board and survives controller restarts.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentsessions.ai-sre.demo
+spec:
+  group: ai-sre.demo
+  scope: Namespaced
+  names:
+    kind: AgentSession
+    plural: agentsessions
+    singular: agentsession
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Ticket, type: string, jsonPath: .spec.ticket}
+        - {name: Stage, type: string, jsonPath: .status.stage}
+        - {name: Attempt, type: integer, jsonPath: .status.attempt}
+        - {name: PR, type: string, jsonPath: .status.pr_url}
+        - {name: Age, type: date, jsonPath: .metadata.creationTimestamp}
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [ticket]
+              properties:
+                ticket:
+                  type: string
+                  description: Jira issue key, e.g. SUP-1
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true

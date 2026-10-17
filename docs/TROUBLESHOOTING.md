@@ -43,4 +43,4 @@
 | `make step-01`: port 30300/30443 already allocated | Another kind cluster or service uses it: `docker ps`, or `make down` and retry |
 | Pods `Pending` / Prometheus OOMKilled right after setup | Docker Desktop memory too low; give it 8 GB |
 | `kubectl top` fails | metrics-server still starting (~1 min): `kubectl -n kube-system get deploy metrics-server` |
-| Laptop slept, alerts went stale | `docker restart ai-sre-control-plane`, wait for pods, `make verify-13` |
+| Laptop slept, alerts went stale | `docker restart ai-sre-control-plane`, wait for pods, `make verify-14` |

@@ -12,7 +12,7 @@ GitHub so ArgoCD (step 04) has something to deploy from.
 | `kubectl` | talk to the cluster | `brew install kubectl` |
 | `helm` | install Cilium (step 02) | `brew install helm` |
 | `gh` | branch protection (step 10) | `brew install gh` |
-| `python3` 3.10+ | agent (step 11), scenarios (step 12) | preinstalled / `brew install python` |
+| `python3` 3.10+ | agent (step 11), scenarios (step 13) | preinstalled / `brew install python` |
 
 ## Accounts
 

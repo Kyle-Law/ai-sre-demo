@@ -1,0 +1,30 @@
+# Step 12: the agent as an in-cluster controller + per-ticket diagnosis Jobs.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-operator
+  namespace: argocd
+  # Deleting the Application also deletes what it deployed (back to local mode).
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Kyle-Law/ai-sre-demo.git
+    targetRevision: main
+    path: 12-agent-operator/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ai-sre-agent
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

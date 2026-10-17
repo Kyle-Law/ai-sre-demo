@@ -57,4 +57,4 @@ tail -f .agent/audit.jsonl | jq .            # every tool call, every external w
 make test                                    # offline tests: agent lifecycle against fakes
 ```
 
-**Next:** [12 · Failure scenarios](../12-scenarios/)
+**Next:** [12 · Agent operator](../12-agent-operator/)

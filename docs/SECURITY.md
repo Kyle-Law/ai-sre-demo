@@ -50,6 +50,23 @@ kubeconfig is not enforced; `11-agent/run.sh` only makes sure the agent *process
 `agent.kubeconfig` and never your `KUBECONFIG`. In production, run the agent on its own host or pod
 with only its own credentials mounted.
 
+## In-cluster mode (step 12)
+
+The local agent holds every credential in one process. In-cluster mode splits it:
+
+| Identity | Runs | Holds | Kubernetes permissions |
+|---|---|---|---|
+| `agent-controller` (ns `ai-sre-agent`) | deterministic code: polling, state, validation, all writes | Jira token, GitHub App key, model key | AgentSessions in its namespace; create Jobs and read their logs in `ai-sre`; the read-only roles for verification. No Secrets, no pods/deployments, nothing in `shop` |
+| `ai-sre-agent` (ns `ai-sre`), per-ticket Job | the LLM investigation | model key, Grafana Viewer token | the read-only roles from step 09; cannot create anything |
+
+A ValidatingAdmissionPolicy pins every Job in `ai-sre` to that ServiceAccount, the agent image, the
+`investigator-credentials` Secret and emptyDir volumes, so the controller's right to create Jobs
+can't be turned into running something else. Both identities tolerate a cordoned node so the agent
+still works during the incident it's investigating.
+
+Trade-off: the agent now runs inside the cluster it diagnoses. If the cluster can't run pods at all,
+fall back to the local agent (step 11), which watches from outside.
+
 ## Data sent to the model
 
 Pod and event metadata, container logs (truncated), metric values, repo file contents and ticket

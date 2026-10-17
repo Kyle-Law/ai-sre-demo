@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("demo", ROOT / "12-scenarios/demo.py")
+spec = importlib.util.spec_from_file_location("demo", ROOT / "13-scenarios/demo.py")
 demo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(demo)
 
@@ -32,7 +32,7 @@ def yaml_files():
 STEPS = sorted(p for p in ROOT.iterdir() if p.is_dir() and re.fullmatch(r"\d\d-[a-z0-9-]+", p.name))
 APPLICATIONS = sorted(ROOT.glob("[0-9][0-9]-*/application.yaml"))
 KUSTOMIZE_DIRS = ["06-demo-app/manifests", "07-alert-rules/manifests",
-                  "08-jira-integration/manifests", "09-agent-access/manifests"]
+                  "08-jira-integration/manifests", "09-agent-access/manifests", "12-agent-operator/manifests"]
 
 
 def test_steps_are_numbered_consecutively():

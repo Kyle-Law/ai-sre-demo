@@ -62,9 +62,11 @@ class Kubectl:
         if validate:
             validate_args(args)
         env = {**os.environ, "KUBECONFIG": self.kubeconfig}
-        cmd = [self.kubectl_bin, *args, "--request-timeout=20s"]
-        if args[0] in {"explain", "version", "api-resources"}:
-            cmd = [self.kubectl_bin, *args]
+        cmd = [self.kubectl_bin, *args]
+        # Any connection override (even --request-timeout) stops kubectl from falling back to the
+        # pod's ServiceAccount, so only add it with a kubeconfig. subprocess timeout still applies.
+        if self.kubeconfig and args[0] not in {"explain", "version", "api-resources"}:
+            cmd.append("--request-timeout=20s")
         try:
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=self.timeout)
         except subprocess.TimeoutExpired:

@@ -15,7 +15,7 @@ them, and CI rejects agent PRs that reach outside the demo app.
 - **Branch protection** ([github-setup.sh](github-setup.sh)): `main` needs a PR, one approving review
   from a **CODEOWNER** (you, in [.github/CODEOWNERS](../.github/CODEOWNERS)), the two required
   checks, and stale approvals are dismissed. `enforce_admins` stays off so you, the admin, can push
-  scenario commits straight to `main` (step 12). The App is not an admin.
+  scenario commits straight to `main` (step 13). The App is not an admin.
 - **CI scope guard** ([.github/workflows/pr-checks.yaml](../.github/workflows/pr-checks.yaml)):
   - `validate-manifests`: every kustomization renders and passes kubeconform; no privileged pods or
     RBAC/Secrets in the demo app

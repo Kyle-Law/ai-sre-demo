@@ -40,9 +40,10 @@ flowchart LR
 | [08 · Jira integration](08-jira-integration/) | alert bridge, contact point, NetworkPolicy *(Argo app)* | webhooks, correlation, least privilege |
 | [09 · Agent access](09-agent-access/) | read-only RBAC + short-lived kubeconfig *(Argo app)* | RBAC, bound tokens, proving access |
 | [10 · GitHub guardrails](10-github-guardrails/) | GitHub App identity, branch protection, CI scope guard | human-gated changes |
-| [11 · The agent](11-agent/) | the AI SRE agent loop | tool guards, change validation, verification |
-| [12 · Failure scenarios](12-scenarios/) | 6 realistic ways to break production | the full incident loop |
-| [13 · Demo runbook](13-demo/) | stage script + preflight | presenting it |
+| [11 · The agent](11-agent/) | the AI SRE agent loop, run locally | tool guards, change validation, verification |
+| [12 · Agent operator](12-agent-operator/) | the agent in-cluster: controller + a diagnosis Job per ticket *(Argo app)* | CRDs, admission policies, splitting read and write identities |
+| [13 · Failure scenarios](13-scenarios/) | 6 realistic ways to break production | the full incident loop |
+| [14 · Demo runbook](14-demo/) | stage script + preflight | presenting it |
 
 ```bash
 make help            # list steps and targets
@@ -65,7 +66,9 @@ make down            # delete the cluster
 | Agent refuses non-read kubectl verbs and Secret reads before calling the API | [11](11-agent/ai_sre_agent/kube.py) |
 | Proposed files are YAML-validated, size-limited and kind-checked before a PR exists | [11](11-agent/ai_sre_agent/diagnose.py) |
 | Logs, events and ticket text are treated as untrusted data (prompt-injection guard) | [11](11-agent/ai_sre_agent/prompts.py) |
-| Every tool call and external write is recorded | `.agent/audit.jsonl` |
+| In-cluster mode: the LLM runs in a Job with no write credentials; only the controller writes, after validating | [12](12-agent-operator/) |
+| An admission policy pins every Job in `ai-sre` to the read-only identity, image and Secret | [12](12-agent-operator/manifests/admission-policy.yaml) |
+| Every tool call and external write is recorded | `.agent/audit.jsonl` (local) or the controller/Job logs (in-cluster) |
 
 Details: [docs/SECURITY.md](docs/SECURITY.md). Problems: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
@@ -85,12 +88,12 @@ make inject SCENARIO=01-oomkilled
 make reset
 ```
 
-More detail per scenario: [12-scenarios/README.md](12-scenarios/README.md).
+More detail per scenario: [13-scenarios/README.md](13-scenarios/README.md).
 
 ## Repository layout
 
 ```
-00-prereqs/ … 13-demo/   The steps (README.md, run.sh, verify.sh; manifests/ for ArgoCD apps)
+00-prereqs/ … 14-demo/   The steps (README.md, run.sh, verify.sh; manifests/ for ArgoCD apps)
 lib/common.sh            Helpers shared by the step scripts (demo.env, context guard, wait for Argo)
 incidents/               Incident records committed by agent PRs
 .github/                 CODEOWNERS, PR template, CI (validate-manifests, agent-scope-guard)

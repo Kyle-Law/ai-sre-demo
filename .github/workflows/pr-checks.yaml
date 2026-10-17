@@ -20,7 +20,7 @@ jobs:
       - name: Render and validate kustomizations
         run: |
           set -euo pipefail
-          for dir in 06-demo-app/manifests 07-alert-rules/manifests 08-jira-integration/manifests 09-agent-access/manifests; do
+          for dir in 06-demo-app/manifests 07-alert-rules/manifests 08-jira-integration/manifests 09-agent-access/manifests 12-agent-operator/manifests; do
             echo "::group::$dir"
             kubectl kustomize "$dir" > rendered.yaml
             kubeconform -strict -summary -ignore-missing-schemas rendered.yaml

@@ -49,3 +49,15 @@ def test_truncate_keeps_head_and_tail():
     out = truncate(text, limit=3000)
     assert out.startswith("A") and out.endswith("B") and "truncated" in out
     assert len(out) < 3200
+
+
+
+def test_no_connection_override_in_cluster(monkeypatch):
+    """--request-timeout disables kubectl's in-cluster fallback; only use it with a kubeconfig."""
+    from ai_sre_agent import kube
+    seen = []
+    monkeypatch.setattr(kube.subprocess, "run", lambda cmd, **kw: seen.append(cmd) or
+                        kube.subprocess.CompletedProcess(cmd, 0, "", ""))
+    kube.Kubectl("").run(["get", "pods", "-n", "shop"])
+    kube.Kubectl("agent.kubeconfig").run(["get", "pods", "-n", "shop"])
+    assert "--request-timeout=20s" not in seen[0] and "--request-timeout=20s" in seen[1]

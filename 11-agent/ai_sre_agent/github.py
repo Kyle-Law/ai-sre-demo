@@ -94,7 +94,8 @@ class GitHub:
         self.session = requests.Session()
         self.session.headers.update(_GH_HEADERS)
         if isinstance(auth, str):
-            self.session.headers["Authorization"] = f"Bearer {auth}"
+            if auth:  # empty: anonymous reads of a public repo (investigator)
+                self.session.headers["Authorization"] = f"Bearer {auth}"
         else:
             self.session.auth = auth
 

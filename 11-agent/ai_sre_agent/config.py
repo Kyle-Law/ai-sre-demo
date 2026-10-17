@@ -77,10 +77,13 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
+        # An investigator (the in-cluster diagnosis Job, step 12) holds no Jira or GitHub
+        # credentials: it only reads the cluster, Grafana and the public repo.
+        writer = _env("AGENT_ROLE") != "investigator"
         app_id = _env("GITHUB_APP_ID")
         if app_id and not _env("GITHUB_APP_PRIVATE_KEY_PATH"):
             raise SystemExit("GITHUB_APP_ID is set but GITHUB_APP_PRIVATE_KEY_PATH is missing")
-        if not app_id and not _env("GITHUB_TOKEN"):
+        if writer and not app_id and not _env("GITHUB_TOKEN"):
             raise SystemExit("Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY_PATH (GitHub App) or GITHUB_TOKEN")
         return cls(
             anthropic_api_key=_env("ANTHROPIC_API_KEY", required=True),
@@ -92,10 +95,10 @@ class Config:
             grafana_url=_env("GRAFANA_URL", required=True).rstrip("/"),
             grafana_token=_env("GRAFANA_TOKEN", required=True),
             grafana_prom_uid=_env("GRAFANA_PROM_UID", "prometheus"),
-            jira_base_url=_env("JIRA_BASE_URL", required=True).rstrip("/"),
-            jira_email=_env("JIRA_EMAIL", required=True),
-            jira_api_token=_env("JIRA_API_TOKEN", required=True),
-            jira_project_key=_env("JIRA_PROJECT_KEY", required=True),
+            jira_base_url=_env("JIRA_BASE_URL", required=writer).rstrip("/"),
+            jira_email=_env("JIRA_EMAIL", required=writer),
+            jira_api_token=_env("JIRA_API_TOKEN", required=writer),
+            jira_project_key=_env("JIRA_PROJECT_KEY", required=writer),
             jira_triage_label=_env("JIRA_TRIAGE_LABEL", "ai-triage"),
             jira_transition_start=_env("JIRA_TRANSITION_START", "In Progress"),
             jira_transition_review=_env("JIRA_TRANSITION_REVIEW", "In Review"),

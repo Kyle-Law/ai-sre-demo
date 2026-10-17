@@ -139,6 +139,12 @@ class Diagnosis:
         d["changes"] = [{k: v for k, v in c.items() if k in ("path", "diff")} for c in self.changes]
         return d
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "Diagnosis":
+        """Inverse of `self.__dict__` (full changes, file content included), used to hand a
+        diagnosis from the investigator Job to the controller."""
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
 
 class Diagnoser:
     def __init__(self, cfg, kube: Kubectl, grafana: Grafana, github: GitHub, audit: AuditLog, client=None):

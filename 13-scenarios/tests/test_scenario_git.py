@@ -1,4 +1,4 @@
-"""Exercise 12-scenarios/demo.py inject/reset against a throwaway clone + bare remote."""
+"""Exercise 13-scenarios/demo.py inject/reset against a throwaway clone + bare remote."""
 
 import shutil
 import subprocess
@@ -36,7 +36,7 @@ def repo(tmp_path):
 
 
 def demo(work, *args):
-    return subprocess.run(["python3", "12-scenarios/demo.py", *args], cwd=work, text=True, capture_output=True)
+    return subprocess.run(["python3", "13-scenarios/demo.py", *args], cwd=work, text=True, capture_output=True)
 
 
 @pytest.mark.parametrize("sid", ["01-oomkilled", "02-bad-image-tag", "03-readiness-probe",

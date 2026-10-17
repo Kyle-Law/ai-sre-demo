@@ -1,0 +1,140 @@
+# The controller: polls Jira, keeps one AgentSession per ticket, starts a diagnosis
+# Job when a ticket needs thinking, and does every Jira/GitHub write itself after
+# validating the Job's proposal. It is deterministic code; the LLM only runs in the Jobs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-controller
+  namespace: ai-sre-agent
+---
+# Its own incident records.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-controller-sessions
+  namespace: ai-sre-agent
+rules:
+  - apiGroups: ["ai-sre.demo"]
+    resources: ["agentsessions", "agentsessions/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-controller-sessions
+  namespace: ai-sre-agent
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-controller-sessions}
+subjects: [{kind: ServiceAccount, name: agent-controller, namespace: ai-sre-agent}]
+---
+# Start diagnosis Jobs in ai-sre and read their output. The admission policy pins
+# what those Jobs may look like; there is no access to Secrets or other workloads.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-controller-jobs
+  namespace: ai-sre
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-controller-jobs
+  namespace: ai-sre
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-controller-jobs}
+subjects: [{kind: ServiceAccount, name: agent-controller, namespace: ai-sre-agent}]
+---
+# Verification after a merge (pods healthy, Argo synced) uses the same read-only
+# roles as the agent itself (step 09).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agent-controller-readonly
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: ai-sre-agent-readonly}
+subjects: [{kind: ServiceAccount, name: agent-controller, namespace: ai-sre-agent}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-controller-argocd-reader
+  namespace: argocd
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ai-sre-agent-argocd-reader}
+subjects: [{kind: ServiceAccount, name: agent-controller, namespace: ai-sre-agent}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-controller-config-reader
+  namespace: shop
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ai-sre-agent-config-reader}
+subjects: [{kind: ServiceAccount, name: agent-controller, namespace: ai-sre-agent}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-controller
+  namespace: ai-sre-agent
+  labels:
+    app: agent-controller
+spec:
+  replicas: 1          # one poller; two would race for the same tickets
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: agent-controller
+  template:
+    metadata:
+      labels:
+        app: agent-controller
+    spec:
+      serviceAccountName: agent-controller
+      priorityClassName: ai-sre-critical
+      tolerations:
+        - {key: node.kubernetes.io/unschedulable, operator: Exists, effect: NoSchedule}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532          # lets the non-root process read the mounted GitHub App key
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: controller
+          image: ai-sre-agent:dev          # built and loaded into kind by 12-agent-operator/run.sh
+          imagePullPolicy: IfNotPresent
+          args: ["operator"]
+          envFrom:
+            - secretRef: {name: controller-credentials}   # from agent.env, created by run.sh
+          env:
+            - {name: KUBECONFIG, value: ""}               # use the pod's ServiceAccount
+            - {name: KUBECTL_BIN, value: kubectl}
+            - {name: HOME, value: /tmp}
+            - {name: KUBECACHEDIR, value: /tmp/kube-cache}
+            - {name: AUDIT_LOG, value: /tmp/audit.jsonl}  # also logged to stdout
+            - {name: STATE_DB, value: /tmp/unused.db}     # state lives in AgentSessions
+            - {name: GRAFANA_URL, value: "http://kps-grafana.monitoring.svc.cluster.local"}
+            - {name: GITHUB_APP_PRIVATE_KEY_PATH, value: /etc/agent/github-app.pem}
+            - name: OPERATOR_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - {name: INVESTIGATOR_NAMESPACE, value: ai-sre}
+            - {name: INVESTIGATOR_SERVICE_ACCOUNT, value: ai-sre-agent}
+            - {name: INVESTIGATOR_IMAGE, value: "ai-sre-agent:dev"}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 384Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: github-app, mountPath: /etc/agent, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: github-app
+          secret: {secretName: agent-github-app, defaultMode: 0440}
+        - name: tmp
+          emptyDir: {}

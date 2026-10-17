@@ -1,6 +1,6 @@
 # 06 · Demo app: `checkout`
 
-**Goal:** deploy the workload that will break (step 12) and that the AI agent will fix (step 11),
+**Goal:** deploy the workload that will break (step 13) and that the AI agent will fix (step 11),
 inside an ArgoCD **AppProject** that limits what any merged change can do.
 
 ## Concepts

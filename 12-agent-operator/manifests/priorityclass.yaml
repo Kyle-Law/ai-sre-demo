@@ -1,0 +1,8 @@
+# The agent must still run while the cluster is degraded (e.g. scheduling pressure).
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ai-sre-critical
+value: 1000000
+globalDefault: false
+description: AI SRE controller and diagnosis Jobs
