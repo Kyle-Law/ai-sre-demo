@@ -142,7 +142,11 @@ def ensure_clean_main() -> None:
 
 
 def pull() -> None:
-    run(["git", "pull", "--ff-only", "--quiet"], check=False, capture=True)
+    """Bring in merged agent PRs before editing: the agent's fixes land on GitHub, not here."""
+    res = run(["git", "pull", "--ff-only", "--quiet", "origin", "main"], check=False, capture=True)
+    if res.returncode:
+        sys.exit("Could not fast-forward main to origin/main (local and remote have diverged?):\n"
+                 f"{res.stderr.strip()}\nFix with: git pull --rebase origin main   (then re-run)")
 
 
 def apply_edits(edits: list[dict], dry_run: bool) -> list[str]:

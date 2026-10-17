@@ -68,3 +68,38 @@ def test_dry_run_changes_nothing(repo):
     r = demo(work, "--dry-run", "inject", "01-oomkilled")
     assert r.returncode == 0 and "64Mi" in r.stdout
     assert sh("git", "status", "--porcelain", cwd=work) == ""
+
+
+def test_merged_agent_pr_is_pulled_before_reset(repo, tmp_path):
+    """The agent's fix is merged on GitHub; reset must build on it, not on a stale local main."""
+    work, remote = repo
+    demo(work, "baseline")
+    assert demo(work, "inject", "02-bad-image-tag").returncode == 0
+    other = tmp_path / "github-merge"                      # someone merges the agent's PR remotely
+    sh("git", "clone", "-q", str(remote), str(other), cwd=tmp_path)
+    dep = other / "06-demo-app/manifests/deployment.yaml"
+    dep.write_text(dep.read_text().replace(":6.15.0-hotfix1", ":6.15.0"))
+    sh("git", "-c", "user.email=a@b", "-c", "user.name=agent", "commit", "-qam", "agent fix", cwd=other)
+    sh("git", "push", "-q", "origin", "main", cwd=other)
+
+    r = demo(work, "reset")
+    assert r.returncode == 0, r.stderr                    # pulled the merge, then nothing left to reset
+    assert "already matches" in r.stdout
+
+
+def test_diverged_main_stops_with_instructions(repo, tmp_path):
+    work, remote = repo
+    demo(work, "baseline")
+    other = tmp_path / "elsewhere"
+    sh("git", "clone", "-q", str(remote), str(other), cwd=tmp_path)
+    (other / "NOTES.md").write_text("remote change\n")
+    sh("git", "add", "NOTES.md", cwd=other)
+    sh("git", "-c", "user.email=a@b", "-c", "user.name=x", "commit", "-qm", "remote", cwd=other)
+    sh("git", "push", "-q", "origin", "main", cwd=other)
+    (work / "LOCAL.md").write_text("unpushed local change\n")
+    sh("git", "add", "LOCAL.md", cwd=work)
+    sh("git", "commit", "-qm", "local", cwd=work)
+
+    r = demo(work, "inject", "01-oomkilled")
+    assert r.returncode != 0 and "git pull --rebase origin main" in r.stderr
+    assert "64Mi" not in (work / "06-demo-app/manifests/deployment.yaml").read_text()
