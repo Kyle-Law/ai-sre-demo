@@ -1,6 +1,4 @@
 # Every change needs a human owner's approval (enforced by branch protection).
-# The AI agent's account must NOT appear here.
+# The AI agent's identity must NOT appear here.
 *            @Kyle-Law
-/platform/   @Kyle-Law
 /.github/    @Kyle-Law
-/argocd/     @Kyle-Law

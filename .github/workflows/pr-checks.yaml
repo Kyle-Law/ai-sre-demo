@@ -20,21 +20,21 @@ jobs:
       - name: Render and validate kustomizations
         run: |
           set -euo pipefail
-          for dir in apps/shop platform/ai-sre platform/monitoring-config; do
+          for dir in 06-demo-app/manifests 07-alert-rules/manifests 08-jira-integration/manifests 09-agent-access/manifests; do
             echo "::group::$dir"
             kubectl kustomize "$dir" > rendered.yaml
             kubeconform -strict -summary -ignore-missing-schemas rendered.yaml
             echo "::endgroup::"
           done
-      - name: Policy - no privileged or secret-bearing resources under apps/
+      - name: Policy - no privileged or secret-bearing resources in the demo app
         run: |
           set -euo pipefail
-          kubectl kustomize apps/shop > shop.yaml
+          kubectl kustomize 06-demo-app/manifests > shop.yaml
           if grep -Eq '^kind: (Secret|Role|RoleBinding|ClusterRole|ClusterRoleBinding|ServiceAccount)$' shop.yaml; then
-            echo "::error::apps/shop must not contain Secrets or RBAC objects"; exit 1
+            echo "::error::06-demo-app/manifests must not contain Secrets or RBAC objects"; exit 1
           fi
           if grep -Eq 'privileged: true|hostNetwork: true|hostPID: true' shop.yaml; then
-            echo "::error::privileged pod settings are not allowed in apps/shop"; exit 1
+            echo "::error::privileged pod settings are not allowed in the demo app"; exit 1
           fi
 
   agent-scope-guard:
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Agent PRs may only touch apps/ and incidents/
+      - name: Agent PRs may only touch 06-demo-app/manifests/ and incidents/
         env:
           AUTHOR: ${{ github.event.pull_request.user.login }}
           AGENT: ${{ vars.AGENT_GITHUB_LOGIN }}
@@ -57,8 +57,8 @@ jobs:
           fi
           echo "PR opened by the AI agent ($AUTHOR). Changed files:"
           git diff --name-only "$BASE" "$HEAD" | tee changed.txt
-          if grep -Ev '^(apps/|incidents/)' changed.txt; then
-            echo "::error::The AI agent may only change apps/ and incidents/. Files above are out of scope."
+          if grep -Ev '^(06-demo-app/manifests/|incidents/)' changed.txt; then
+            echo "::error::The AI agent may only change 06-demo-app/manifests/ and incidents/. Files above are out of scope."
             exit 1
           fi
           echo "Scope OK."

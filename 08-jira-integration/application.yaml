@@ -1,0 +1,28 @@
+# Step 08: Grafana -> Jira. The alert bridge (namespace ai-sre) plus the Grafana
+# contact point and notification policy that route alerts to it (namespace monitoring).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: jira-integration
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Kyle-Law/ai-sre-demo.git
+    targetRevision: main
+    path: 08-jira-integration/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ai-sre
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

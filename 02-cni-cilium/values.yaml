@@ -1,0 +1,22 @@
+# Cilium Helm values for a single-node kind cluster.
+# kube-proxy stays in place (kubeProxyReplacement off) to keep the moving parts small.
+
+# kind loads images into the node container; don't force re-pulls.
+image:
+  pullPolicy: IfNotPresent
+
+# Pod CIDRs come from the node's spec.podCIDR (assigned by kind/kube-controller-manager).
+ipam:
+  mode: kubernetes
+
+operator:
+  replicas: 1
+
+# Hubble: flow visibility. The UI shows which pod talked to which, and which
+# flows a NetworkPolicy dropped (try it in step 08).
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true

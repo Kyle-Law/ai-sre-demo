@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+
+configMapGenerator:
+  # Bridge code, mounted into a stock python image. The hash suffix makes a
+  # code change roll the Deployment.
+  - name: alert-bridge-code
+    namespace: ai-sre
+    files:
+      - bridge.py
+  # Grafana provisioning: fixed names + the label the alerting sidecar watches.
+  - name: ai-sre-contact-points
+    namespace: monitoring
+    files:
+      - contact-points.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_alert: "1"
+  - name: ai-sre-notification-policies
+    namespace: monitoring
+    files:
+      - notification-policies.yaml
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_alert: "1"

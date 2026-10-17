@@ -14,8 +14,8 @@
 
 | Problem | Check |
 |---|---|
-| `selftest` fails on Kubernetes | Token expired: `make agent-kubeconfig`. If the cluster was recreated, the API port changed, so regenerate it too. Is Docker Desktop running? |
-| `selftest` RBAC row FAILs | The `ai-sre` ArgoCD app isn't synced, or `shop`/`argocd` namespaces were missing when it synced. Hit Refresh/Sync on `ai-sre` |
+| `selftest` fails on Kubernetes | Token expired: `make step-09` re-mints it. If the cluster was recreated, the API port changed, so regenerate it too. Is Docker Desktop running? |
+| `selftest` RBAC row FAILs | The `agent-access` ArgoCD app isn't synced, or `shop`/`argocd` namespaces were missing when it synced (steps 04 and 06 come first). Hit Refresh/Sync on `agent-access` |
 | Jira 400 on transition | The transition name differs. Check `audit.jsonl` for `jira_transition_unavailable` (lists available names) and set `JIRA_TRANSITION_*` |
 | Jira search 410/404 | Jira Cloud removed the old search API. The agent uses `/rest/api/3/search/jql`, so self-hosted Jira Data Center would need a change in `jira.py` |
 | GitHub App 404 on `/repos/.../installation` | The App isn't installed on the repo: `https://github.com/apps/<slug>/installations/new` |
@@ -29,8 +29,8 @@
 
 | Problem | Check |
 |---|---|
-| `expected exactly 1 match` | A previous scenario is still active or `apps/shop` was edited by hand. Run `python3 scenarios/demo.py reset` |
-| `demo-baseline not found` | Run `python3 scenarios/demo.py baseline` once on a known-good main |
+| `expected exactly 1 match` | A previous scenario is still active or `06-demo-app/manifests` was edited by hand. Run `make reset` |
+| `demo-baseline not found` | Run `make baseline` once on a known-good main |
 | Push rejected | Branch protection with `enforce_admins=true`. The demo operator must be an admin, or inject via a PR |
 | 01 OOM doesn't trigger | The node has swap or a very old kernel. Check `kubectl -n shop describe pod`. The app loads ~96 MB at start, so the 64Mi limit must be hit |
 | 06 doesn't trigger | Needs the admin `kind-ai-sre` context. The agent's kubeconfig can't cordon, by design |
@@ -39,7 +39,7 @@
 
 | Problem | Check |
 |---|---|
-| `make cluster-up`: port 30300/30443 already allocated | Another kind cluster or service uses it: `docker ps`, or `make cluster-down` and retry |
+| `make step-01`: port 30300/30443 already allocated | Another kind cluster or service uses it: `docker ps`, or `make down` and retry |
 | Pods `Pending` / Prometheus OOMKilled right after setup | Docker Desktop memory too low; give it 8 GB |
 | `kubectl top` fails | metrics-server still starting (~1 min): `kubectl -n kube-system get deploy metrics-server` |
-| Laptop slept, alerts went stale | `docker restart ai-sre-control-plane`, wait for pods, `make verify` |
+| Laptop slept, alerts went stale | `docker restart ai-sre-control-plane`, wait for pods, `make verify-13` |

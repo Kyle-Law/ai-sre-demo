@@ -1,0 +1,26 @@
+# Step 07: Grafana alert rules, provisioned from git through the Grafana
+# alerting sidecar (it loads ConfigMaps labelled grafana_alert=1).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alert-rules
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Kyle-Law/ai-sre-demo.git
+    targetRevision: main
+    path: 07-alert-rules/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

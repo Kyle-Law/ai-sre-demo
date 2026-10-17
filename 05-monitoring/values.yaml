@@ -1,0 +1,66 @@
+# Values for kube-prometheus-stack, tuned for a single-node kind demo cluster.
+
+crds:
+  enabled: true
+
+# Grafana-managed alerting replaces Alertmanager in this demo.
+alertmanager:
+  enabled: false
+
+# Keep the demo quiet: only our own Grafana rules should raise tickets.
+defaultRules:
+  create: false
+
+# On kind these control-plane components listen on 127.0.0.1 only; scraping them
+# just produces "target down" noise.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+# The alert rules only use kube-state-metrics. node-exporter's host root mount
+# also fails on Docker Desktop (rootfs is not a shared mount).
+nodeExporter:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+
+grafana:
+  # Admin credentials come from a Secret created by 05-monitoring/run.sh
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: NodePort
+    nodePort: 30300
+  grafana.ini:
+    server:
+      # Used to build links in alert notifications (and therefore in Jira).
+      root_url: http://localhost:30300/
+    unified_alerting:
+      enabled: true
+    users:
+      viewers_can_edit: false
+    auth.anonymous:
+      enabled: false
+  sidecar:
+    datasources:
+      uid: prometheus
+    alerts:
+      # Loads ConfigMaps labelled grafana_alert=1 (steps 07 and 08)
+      enabled: true
+      label: grafana_alert
+      labelValue: "1"

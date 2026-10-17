@@ -1,5 +1,6 @@
-"""Repo-level checks: manifests parse, kustomize resource lists resolve, every scenario
-applies cleanly to the baseline and produces valid YAML, and placeholders are consistent."""
+"""Repo-level checks: the numbered step layout is complete, manifests parse, kustomize resource
+lists resolve, ArgoCD Applications point at real paths, every scenario applies cleanly to the
+baseline and produces valid YAML, and placeholders are consistent."""
 
 import importlib.util
 import re
@@ -9,15 +10,53 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("demo", ROOT / "scenarios/demo.py")
+spec = importlib.util.spec_from_file_location("demo", ROOT / "12-scenarios/demo.py")
 demo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(demo)
 
 
 def yaml_files():
     for p in ROOT.rglob("*.y*ml"):
-        if ".git" not in p.parts and "node_modules" not in p.parts:
+        if not {".git", ".venv", "node_modules"} & set(p.parts):
             yield p
+
+
+STEPS = sorted(p for p in ROOT.iterdir() if p.is_dir() and re.fullmatch(r"\d\d-[a-z0-9-]+", p.name))
+APPLICATIONS = sorted(ROOT.glob("[0-9][0-9]-*/application.yaml"))
+KUSTOMIZE_DIRS = ["06-demo-app/manifests", "07-alert-rules/manifests",
+                  "08-jira-integration/manifests", "09-agent-access/manifests"]
+
+
+def test_steps_are_numbered_consecutively():
+    assert [int(p.name[:2]) for p in STEPS] == list(range(len(STEPS)))
+
+
+@pytest.mark.parametrize("step", STEPS, ids=lambda p: p.name)
+def test_step_has_readme_and_executable_scripts(step):
+    assert (step / "README.md").exists()
+    for script in ("run.sh", "verify.sh"):
+        if (step / script).exists():
+            assert (step / script).stat().st_mode & 0o111, f"{step.name}/{script} not executable"
+
+
+@pytest.mark.parametrize("app", APPLICATIONS, ids=lambda p: p.parent.name)
+def test_application_paths_exist(app):
+    spec = yaml.safe_load(app.read_text())["spec"]
+    for src in spec.get("sources", [spec.get("source")]):
+        if src.get("path"):
+            assert (ROOT / src["path"] / "kustomization.yaml").exists(), src["path"]
+        for vf in src.get("helm", {}).get("valueFiles", []):
+            assert (ROOT / vf.replace("$values/", "")).exists(), vf
+
+
+def test_agent_scope_matches_demo_app():
+    """Agent default, CI guard and the shop Application must agree on the agent's write path."""
+    shop = yaml.safe_load((ROOT / "06-demo-app/application.yaml").read_text())
+    path = shop["spec"]["source"]["path"] + "/"
+    config = (ROOT / "11-agent/ai_sre_agent/config.py").read_text()
+    ci = (ROOT / ".github/workflows/pr-checks.yaml").read_text()
+    assert f'"AGENT_ALLOWED_PATHS", "{path}"' in config
+    assert f"^({path}|incidents/)" in ci
 
 
 @pytest.mark.parametrize("path", list(yaml_files()), ids=lambda p: str(p.relative_to(ROOT)))
@@ -25,7 +64,7 @@ def test_yaml_parses(path):
     list(yaml.safe_load_all(path.read_text()))
 
 
-@pytest.mark.parametrize("kdir", ["apps/shop", "platform/ai-sre", "platform/monitoring-config"])
+@pytest.mark.parametrize("kdir", KUSTOMIZE_DIRS)
 def test_kustomization_references_exist(kdir):
     k = yaml.safe_load((ROOT / kdir / "kustomization.yaml").read_text())
     for res in k.get("resources", []):
@@ -62,7 +101,7 @@ def test_scenario_semantics():
 
 
 def test_alert_rules_cover_every_scenario():
-    rules = yaml.safe_load((ROOT / "platform/monitoring-config/alert-rules.yaml").read_text())
+    rules = yaml.safe_load((ROOT / "07-alert-rules/manifests/alert-rules.yaml").read_text())
     titles = {r["title"] for g in rules["groups"] for r in g["rules"]}
     for sid, s in demo.SCENARIOS.items():
         assert s["alert"] in titles, f"{sid} expects alert {s['alert']}"
@@ -77,9 +116,10 @@ def test_alert_rules_cover_every_scenario():
 def test_repo_url_consistent():
     """Placeholder or configured, every manifest must point at the same repo URL."""
     urls = {}
-    for p in ROOT.rglob("*.yaml"):
+    for p in yaml_files():
         for url in re.findall(r"https://github\.com/[^\s]+\.git", p.read_text()):
             urls.setdefault(url, []).append(str(p.relative_to(ROOT)))
     assert len(urls) == 1, urls
     files = next(iter(urls.values()))
-    assert "bootstrap/root-app.yaml" in files and "argocd/apps/shop.yaml" in files
+    assert {str(a.relative_to(ROOT)) for a in APPLICATIONS} <= set(files)
+    assert "06-demo-app/appproject.yaml" in files

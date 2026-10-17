@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+
+# Fixed name (no hash suffix) and the label the Grafana alerts sidecar watches.
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_alert: "1"
+
+configMapGenerator:
+  - name: ai-sre-alert-rules
+    files:
+      - alert-rules.yaml

@@ -13,7 +13,7 @@ passes through a human-reviewed pull request and is applied by ArgoCD, never by 
 | AI agent (Jira) | comment, transition, add labels on project tickets | anything outside the project's permission scheme |
 | Alert bridge | create tickets / comment in one Jira project | read cluster state (no ServiceAccount token mounted) |
 | Human reviewer | approve and merge | — |
-| ArgoCD (`shop` project) | apply `apps/shop` into namespace `shop` | create RBAC, Secrets, ServiceAccounts or cluster-scoped objects (except the `shop` Namespace) |
+| ArgoCD (`shop` project) | apply `06-demo-app/manifests` into namespace `shop` | create RBAC, Secrets, ServiceAccounts or cluster-scoped objects (except the `shop` Namespace) |
 
 ## Defence in depth for a bad or manipulated proposal
 
@@ -46,7 +46,7 @@ passes through a human-reviewed pull request and is applied by ArgoCD, never by 
 Nothing above is committed to git (`.gitignore` covers `demo.env`, `*.kubeconfig`, `agent.env`, `*.pem`).
 
 **Local-demo caveat:** the agent runs as your macOS user, so OS-level isolation from your admin
-kubeconfig is not enforced; `scripts/run-agent.sh` only makes sure the agent *process* is handed
+kubeconfig is not enforced; `11-agent/run.sh` only makes sure the agent *process* is handed
 `agent.kubeconfig` and never your `KUBECONFIG`. In production, run the agent on its own host or pod
 with only its own credentials mounted.
 

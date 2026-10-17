@@ -1,0 +1,27 @@
+# Step 09: the AI agent's read-only Kubernetes identity (ServiceAccount + RBAC).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-access
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Kyle-Law/ai-sre-demo.git
+    targetRevision: main
+    path: 09-agent-access/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ai-sre
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

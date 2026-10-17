@@ -1,56 +1,42 @@
 .DEFAULT_GOAL := help
 SCENARIO ?=
+STEPS_UP := 01 02 03 04 05 06 07 08 09
 
 help: ## Show targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-16s\033[0m %s\n",$$1,$$2}'
+	@echo "Steps (each folder has a README):"
+	@for d in [0-9][0-9]-*/; do printf "  \033[36m%-22s\033[0m %s\n" "$${d%/}" "$$(sed -n '1s/^# //p' $$d/README.md)"; done
+	@echo
+	@echo "Targets:"
+	@grep -E '^[a-zA-Z0-9_%-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-22s\033[0m %s\n",$$1,$$2}'
 
-configure: ## Fill repo/Grafana placeholders from demo.env
-	./scripts/configure-repo.sh
+step-%: ## Run a step:    make step-05
+	@d=$$(ls -d $*-*/ 2>/dev/null | head -1); test -n "$$d" || { echo "no step $*"; exit 1; }; \
+	  test -x "$$d/run.sh" || { echo "step $* has no run.sh; see $$d/README.md"; exit 1; }; "./$${d}run.sh"
 
-github-app: ## Create the agent's GitHub App (one browser click) + private key
-	python3 scripts/create-github-app.py
+verify-%: ## Verify a step: make verify-05
+	@d=$$(ls -d $*-*/ 2>/dev/null | head -1); test -n "$$d" || { echo "no step $*"; exit 1; }; \
+	  test -x "$$d/verify.sh" || { echo "step $* has no verify.sh"; exit 1; }; "./$${d}verify.sh"
 
-cluster-up: ## Create the local kind cluster, ArgoCD, secrets, bootstrap apps
-	./infra/kind/up.sh
+up: ## Steps 01-09 in order (cluster + platform; needs demo.env incl. Jira)
+	@for s in $(STEPS_UP); do $(MAKE) --no-print-directory step-$$s || exit 1; done
 
-cluster-down: ## Delete the local kind cluster
+down: ## Delete the kind cluster
 	kind delete cluster --name $${KIND_CLUSTER_NAME:-ai-sre}
 
-test: ## Run all offline tests (agent, alert bridge, scenarios, manifests)
-	python3 -m pytest -q agent/tests tests
+test: ## Offline tests (agent, alert bridge, scenarios, repo layout)
+	python3 -m pytest -q 11-agent/tests 08-jira-integration/tests 12-scenarios/tests tests
 
-baseline: ## Tag the current known-good apps/shop as demo-baseline
-	python3 scenarios/demo.py baseline
+baseline: ## Tag the current known-good demo app as demo-baseline
+	python3 12-scenarios/demo.py baseline
 
 scenarios: ## List failure scenarios
-	python3 scenarios/demo.py list
+	python3 12-scenarios/demo.py list
 
 inject: ## Break something: make inject SCENARIO=01-oomkilled
 	@test -n "$(SCENARIO)" || (echo "usage: make inject SCENARIO=01-oomkilled" && exit 1)
-	python3 scenarios/demo.py inject $(SCENARIO)
+	python3 12-scenarios/demo.py inject $(SCENARIO)
 
-reset: ## Restore apps/shop to demo-baseline (and uncordon nodes)
-	python3 scenarios/demo.py reset --uncordon
+reset: ## Restore the demo app to demo-baseline (and uncordon nodes)
+	python3 12-scenarios/demo.py reset --uncordon
 
-status: ## Scenario + pod status
-	python3 scenarios/demo.py status
-
-verify: ## Pre-show platform health check (admin kubeconfig)
-	./scripts/verify-platform.sh
-
-agent-kubeconfig: ## Mint the read-only agent kubeconfig (admin kubeconfig)
-	./scripts/generate-agent-kubeconfig.sh --out agent.kubeconfig
-
-verify-rbac: ## Prove the agent kubeconfig is read-only
-	KUBECONFIG=agent.kubeconfig ./scripts/verify-rbac.sh
-
-agent: ## Run the agent loop locally (DRY_RUN=true make agent to rehearse)
-	./scripts/run-agent.sh run
-
-agent-selftest: ## Agent connectivity + read-only RBAC proof
-	./scripts/run-agent.sh selftest
-
-agent-status: ## Incidents in the agent's local state DB
-	./scripts/run-agent.sh status
-
-.PHONY: help configure github-app cluster-up cluster-down agent agent-selftest agent-status test baseline scenarios inject reset status verify agent-kubeconfig verify-rbac
+.PHONY: help up down test baseline scenarios inject reset
