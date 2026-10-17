@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: shop
+  labels:
+    app: checkout
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  # Short deadline so a stuck rollout surfaces quickly in the demo.
+  progressDeadlineSeconds: 120
+  selector:
+    matchLabels:
+      app: checkout
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: checkout
+      annotations:
+        # Bump to roll pods after a ConfigMap change.
+        demo.ai-sre/config-revision: "1"
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: checkout
+          image: ghcr.io/stefanprodan/podinfo:6.15.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - ./podinfo
+            - --port=9898
+            - --port-metrics=9797
+            - --level=info
+            # Simulates the in-memory product catalog cache (~96 MB).
+            - --stress-memory=96
+          env:
+            - name: PODINFO_UI_MESSAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: checkout-config
+                  key: ui.message
+            - name: PODINFO_UI_COLOR
+              valueFrom:
+                configMapKeyRef:
+                  name: checkout-config
+                  key: ui.color
+          ports:
+            - name: http
+              containerPort: 9898
+            - name: http-metrics
+              containerPort: 9797
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9898
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9898
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

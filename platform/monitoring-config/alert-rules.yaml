@@ -1,0 +1,252 @@
+# Grafana-managed alert rules for the demo workloads (namespace "shop").
+# Every rule emits the labels the alert bridge needs: namespace, workload,
+# severity and ai_triage=true (which routes the ticket to the AI agent).
+#
+# PromQL label_replace() normalises container / deployment / pod names into a
+# single "workload" label so alerts for the same workload correlate into one
+# Jira ticket.
+#
+# Annotations use {{ .Labels.x }} (not {{ $labels.x }}) because Grafana expands
+# $VARS from the environment in provisioning files outside the query model.
+apiVersion: 1
+groups:
+- orgId: 1
+  name: shop-workloads
+  folder: AI SRE Demo
+  interval: 30s
+  rules:
+  - uid: shop-oomkilled
+    title: ContainerOOMKilled
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum by (namespace, workload) (label_replace(kube_pod_container_status_last_terminated_reason{namespace="shop", reason="OOMKilled"}, "workload", "$1", "container", "(.+)"))
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: OK
+    for: 1m
+    labels:
+      severity: critical
+      team: payments
+      ai_triage: 'true'
+    annotations:
+      summary: '{{ .Labels.namespace }}/{{ .Labels.workload }} container was OOMKilled'
+      description: A container in {{ .Labels.namespace }}/{{ .Labels.workload }} was killed for exceeding its memory limit and is restarting.
+    isPaused: false
+  - uid: shop-image-pull
+    title: ContainerImagePullFailing
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum by (namespace, workload) (label_replace(kube_pod_container_status_waiting_reason{namespace="shop", reason=~"ErrImagePull|ImagePullBackOff"}, "workload", "$1", "container", "(.+)"))
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: OK
+    for: 1m
+    labels:
+      severity: critical
+      team: payments
+      ai_triage: 'true'
+    annotations:
+      summary: '{{ .Labels.namespace }}/{{ .Labels.workload }} cannot pull its container image'
+      description: Pods for {{ .Labels.namespace }}/{{ .Labels.workload }} are stuck in ErrImagePull/ImagePullBackOff.
+    isPaused: false
+  - uid: shop-config-error
+    title: ContainerConfigError
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum by (namespace, workload) (label_replace(kube_pod_container_status_waiting_reason{namespace="shop", reason=~"CreateContainerConfigError|CreateContainerError"}, "workload", "$1", "container", "(.+)"))
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: OK
+    for: 1m
+    labels:
+      severity: critical
+      team: payments
+      ai_triage: 'true'
+    annotations:
+      summary: '{{ .Labels.namespace }}/{{ .Labels.workload }} cannot start: container configuration error'
+      description: Pods for {{ .Labels.namespace }}/{{ .Labels.workload }} are stuck in CreateContainerConfigError (missing ConfigMap/Secret key or invalid container spec).
+    isPaused: false
+  - uid: shop-rollout-stuck
+    title: DeploymentRolloutStuck
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum by (namespace, workload) (label_replace(kube_deployment_status_condition{namespace="shop", condition="Progressing", status="false"}, "workload", "$1", "deployment", "(.+)"))
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: OK
+    for: 1m
+    labels:
+      severity: warning
+      team: payments
+      ai_triage: 'true'
+    annotations:
+      summary: '{{ .Labels.namespace }}/{{ .Labels.workload }} rollout exceeded its progress deadline'
+      description: Deployment {{ .Labels.namespace }}/{{ .Labels.workload }} has Progressing=False (ProgressDeadlineExceeded). New pods are not becoming ready.
+    isPaused: false
+  - uid: shop-unschedulable
+    title: PodUnschedulable
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: sum by (namespace, workload) (label_replace(kube_pod_status_unschedulable{namespace="shop"}, "workload", "$1", "pod", "(.+)-[a-z0-9]+-[a-z0-9]+"))
+        instant: true
+        range: false
+        intervalMs: 1000
+        maxDataPoints: 43200
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        refId: B
+        type: reduce
+        expression: A
+        reducer: last
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: OK
+    for: 1m
+    labels:
+      severity: critical
+      team: payments
+      ai_triage: 'true'
+    annotations:
+      summary: '{{ .Labels.namespace }}/{{ .Labels.workload }} has pods that cannot be scheduled'
+      description: One or more pods of {{ .Labels.namespace }}/{{ .Labels.workload }} are Pending because the scheduler cannot place them.
+    isPaused: false

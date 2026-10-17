@@ -1,0 +1,28 @@
+# Grafana alert rules, contact point and notification policy, provisioned
+# from git through the Grafana alerting sidecar.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_GITHUB_ORG/ai-sre-demo.git
+    targetRevision: main
+    path: platform/monitoring-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,13 @@
+apiVersion: 1
+policies:
+  - orgId: 1
+    receiver: jira-bridge
+    # One notification group per alert per workload; the bridge correlates
+    # alerts for the same workload into a single Jira ticket.
+    group_by:
+      - alertname
+      - namespace
+      - workload
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 4h

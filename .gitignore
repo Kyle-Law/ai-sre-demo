@@ -1,0 +1,18 @@
+# credentials and local config: never commit
+demo.env
+agent.env
+*.kubeconfig
+.env
+
+# local state
+.demo-state.json
+*.db
+*.jsonl
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+build/

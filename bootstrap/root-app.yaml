@@ -1,0 +1,22 @@
+# App-of-apps. Apply once by hand (infra/cluster-vm/install.sh does it);
+# from then on, everything in argocd/apps/ is managed from git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR_GITHUB_ORG/ai-sre-demo.git
+    targetRevision: main
+    path: argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

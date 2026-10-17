@@ -1,0 +1,64 @@
+name: pr-checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-manifests:
+    name: validate-manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+      - name: Render and validate kustomizations
+        run: |
+          set -euo pipefail
+          for dir in apps/shop platform/ai-sre platform/monitoring-config; do
+            echo "::group::$dir"
+            kubectl kustomize "$dir" > rendered.yaml
+            kubeconform -strict -summary -ignore-missing-schemas rendered.yaml
+            echo "::endgroup::"
+          done
+      - name: Policy - no privileged or secret-bearing resources under apps/
+        run: |
+          set -euo pipefail
+          kubectl kustomize apps/shop > shop.yaml
+          if grep -Eq '^kind: (Secret|Role|RoleBinding|ClusterRole|ClusterRoleBinding|ServiceAccount)$' shop.yaml; then
+            echo "::error::apps/shop must not contain Secrets or RBAC objects"; exit 1
+          fi
+          if grep -Eq 'privileged: true|hostNetwork: true|hostPID: true' shop.yaml; then
+            echo "::error::privileged pod settings are not allowed in apps/shop"; exit 1
+          fi
+
+  agent-scope-guard:
+    name: agent-scope-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Agent PRs may only touch apps/ and incidents/
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          AGENT: ${{ vars.AGENT_GITHUB_LOGIN }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$AGENT" || "$AUTHOR" != "$AGENT" ]]; then
+            echo "PR by $AUTHOR (not the agent): scope guard not applicable."; exit 0
+          fi
+          echo "PR opened by the AI agent ($AUTHOR). Changed files:"
+          git diff --name-only "$BASE" "$HEAD" | tee changed.txt
+          if grep -Ev '^(apps/|incidents/)' changed.txt; then
+            echo "::error::The AI agent may only change apps/ and incidents/. Files above are out of scope."
+            exit 1
+          fi
+          echo "Scope OK."

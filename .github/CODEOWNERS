@@ -1,0 +1,6 @@
+# Every change needs a human owner's approval (enforced by branch protection).
+# The AI agent's account must NOT appear here.
+*            @YOUR_GITHUB_USER
+/platform/   @YOUR_GITHUB_USER
+/.github/    @YOUR_GITHUB_USER
+/argocd/     @YOUR_GITHUB_USER

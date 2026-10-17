@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shop
+  namespace: argocd
+  labels:
+    demo.ai-sre/remediation-target: "true"
+spec:
+  project: shop
+  source:
+    repoURL: https://github.com/YOUR_GITHUB_ORG/ai-sre-demo.git
+    targetRevision: main
+    path: apps/shop
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shop
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+    syncOptions:
+      - CreateNamespace=false

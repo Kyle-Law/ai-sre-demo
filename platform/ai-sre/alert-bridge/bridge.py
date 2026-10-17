@@ -1,0 +1,287 @@
+"""Grafana -> Jira alert bridge.
+
+Receives Grafana-managed alert webhooks and turns them into Jira tickets:
+
+* FIRING alert, no open ticket for that workload  -> create a ticket
+* FIRING alert, open ticket for the same workload -> add a "correlated alert"
+  comment + label to the existing ticket (one incident, one ticket)
+* RESOLVED alert                                  -> comment on the ticket
+
+Only alerts labelled ai_triage="true" are processed. Tickets get the
+JIRA_TRIAGE_LABEL label (default "ai-triage"), which is what the AI SRE agent
+polls for.
+
+The full alert payload is embedded in the ticket description inside a
+{code:json} block between ALERT_JSON markers so the agent can parse it.
+
+Stdlib only (runs on python:3.12-slim with the file mounted from a ConfigMap).
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import os
+import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
+JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
+JIRA_PROJECT_KEY = os.environ.get("JIRA_PROJECT_KEY", "")
+JIRA_ISSUE_TYPE = os.environ.get("JIRA_ISSUE_TYPE", "Task")
+TRIAGE_LABEL = os.environ.get("JIRA_TRIAGE_LABEL", "ai-triage")
+LISTEN_PORT = int(os.environ.get("PORT", "8080"))
+DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
+
+logging.basicConfig(level=logging.INFO, format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":%(message)s}')
+log = logging.getLogger("alert-bridge")
+
+# Grafana may deliver several notification groups at once; serialise ticket
+# creation so two groups for the same workload never create two tickets.
+_lock = threading.Lock()
+
+
+def jlog(level: int, msg: str, **fields) -> None:
+    log.log(level, json.dumps({"event": msg, **fields}))
+
+
+def label_safe(value: str) -> str:
+    """Jira labels cannot contain spaces; keep them short and predictable."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")[:120] or "unknown"
+
+
+class Jira:
+    def __init__(self, base_url: str, email: str, token: str):
+        self.base_url = base_url
+        auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+        self.headers = {
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+    def _request(self, method: str, path: str, body: dict | None = None, query: dict | None = None):
+        url = f"{self.base_url}{path}"
+        if query:
+            url += "?" + urllib.parse.urlencode(query)
+        data = json.dumps(body).encode() if body is not None else None
+        for attempt in range(4):
+            req = urllib.request.Request(url, data=data, method=method, headers=self.headers)
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    raw = resp.read()
+                    return json.loads(raw) if raw else {}
+            except urllib.error.HTTPError as exc:
+                if exc.code == 429 and attempt < 3:
+                    time.sleep(int(exc.headers.get("Retry-After", "2")))
+                    continue
+                detail = exc.read().decode(errors="replace")[:500]
+                raise RuntimeError(f"Jira {method} {path} -> {exc.code}: {detail}") from exc
+        raise RuntimeError(f"Jira {method} {path}: retries exhausted")
+
+    def search(self, jql: str) -> list[dict]:
+        res = self._request(
+            "GET",
+            "/rest/api/3/search/jql",
+            query={"jql": jql, "fields": "summary,labels,status", "maxResults": "20"},
+        )
+        return res.get("issues", [])
+
+    def create_issue(self, summary: str, description: str, labels: list[str]) -> str:
+        body = {
+            "fields": {
+                "project": {"key": JIRA_PROJECT_KEY},
+                "issuetype": {"name": JIRA_ISSUE_TYPE},
+                "summary": summary[:250],
+                "description": description,
+                "labels": labels,
+            }
+        }
+        if DRY_RUN:
+            jlog(logging.INFO, "dry_run_create_issue", body=body)
+            return "DRY-1"
+        return self._request("POST", "/rest/api/2/issue", body)["key"]
+
+    def comment(self, key: str, text: str) -> None:
+        if DRY_RUN:
+            jlog(logging.INFO, "dry_run_comment", key=key, text=text)
+            return
+        self._request("POST", f"/rest/api/2/issue/{key}/comment", {"body": text[:30000]})
+
+    def add_labels(self, key: str, labels: list[str]) -> None:
+        if DRY_RUN:
+            jlog(logging.INFO, "dry_run_add_labels", key=key, labels=labels)
+            return
+        self._request("PUT", f"/rest/api/2/issue/{key}", {"update": {"labels": [{"add": l} for l in labels]}})
+
+
+def open_issues_with_label(jira: Jira, label: str) -> list[dict]:
+    jql = f'project = "{JIRA_PROJECT_KEY}" AND labels = "{label}" AND statusCategory != Done ORDER BY created ASC'
+    return jira.search(jql)
+
+
+def describe_alert(alert: dict) -> str:
+    labels = alert.get("labels", {})
+    ann = alert.get("annotations", {})
+    alert_json = {
+        "alertname": labels.get("alertname"),
+        "status": alert.get("status"),
+        "fingerprint": alert.get("fingerprint"),
+        "startsAt": alert.get("startsAt"),
+        "labels": labels,
+        "annotations": ann,
+        "values": alert.get("values"),
+        "generatorURL": alert.get("generatorURL"),
+    }
+    link = alert.get("generatorURL") or alert.get("panelURL") or ""
+    lines = [
+        f"h3. {labels.get('alertname', 'Alert')} is FIRING",
+        "",
+        f"*Summary:* {ann.get('summary', '-')}",
+        f"*Description:* {ann.get('description', '-')}",
+        f"*Severity:* {labels.get('severity', '-')}",
+        f"*Namespace / workload:* {labels.get('namespace', '-')} / {labels.get('workload', '-')}",
+        f"*Started at (UTC):* {alert.get('startsAt', '-')}",
+    ]
+    if link:
+        lines.append(f"*Grafana:* [Open alert rule|{link}]")
+    lines += [
+        "",
+        "h4. Alert payload (machine readable)",
+        "ALERT_JSON_BEGIN",
+        "{code:json}",
+        json.dumps(alert_json, indent=2),
+        "{code}",
+        "ALERT_JSON_END",
+        "",
+        f"_Created automatically by alert-bridge. The label {{{{{TRIAGE_LABEL}}}}} hands this "
+        "ticket to the AI SRE agent, which has read-only cluster access and proposes fixes "
+        "as pull requests for human review._",
+    ]
+    return "\n".join(lines)
+
+
+def handle_alert(jira: Jira, alert: dict) -> dict:
+    labels = alert.get("labels", {})
+    if labels.get("ai_triage") != "true":
+        return {"skipped": "not ai_triage"}
+
+    alertname = labels.get("alertname", "UnknownAlert")
+    namespace = labels.get("namespace", "unknown")
+    workload = labels.get("workload", "unknown")
+    fingerprint = alert.get("fingerprint") or label_safe(f"{alertname}-{namespace}-{workload}")
+    fp_label = label_safe(f"fp-{fingerprint}")
+    wl_label = label_safe(f"wl-{namespace}-{workload}")
+    alert_label = label_safe(f"alert-{alertname}")
+    status = alert.get("status", "firing")
+
+    if status == "firing":
+        if open_issues_with_label(jira, fp_label):
+            return {"action": "noop", "reason": "ticket already open for fingerprint"}
+        related = open_issues_with_label(jira, wl_label)
+        if related:
+            key = related[0]["key"]
+            jira.add_labels(key, [fp_label, alert_label])
+            jira.comment(
+                key,
+                f"(!) *Correlated alert firing:* {alertname} on {namespace}/{workload} "
+                f"since {alert.get('startsAt', '-')}\n"
+                f"{alert.get('annotations', {}).get('summary', '')}\n"
+                "ALERT_JSON_BEGIN\n{code:json}\n"
+                + json.dumps({"alertname": alertname, "labels": labels, "startsAt": alert.get("startsAt")}, indent=2)
+                + "\n{code}\nALERT_JSON_END",
+            )
+            return {"action": "correlated", "key": key}
+        summary = f"[{labels.get('severity', 'alert').upper()}] {alertname}: {namespace}/{workload}"
+        key = jira.create_issue(
+            summary,
+            describe_alert(alert),
+            [TRIAGE_LABEL, "incident", fp_label, wl_label, alert_label],
+        )
+        return {"action": "created", "key": key}
+
+    # resolved
+    issues = open_issues_with_label(jira, fp_label)
+    for issue in issues:
+        jira.comment(
+            issue["key"],
+            f"(/) *Grafana reports {alertname} RESOLVED* for {namespace}/{workload} "
+            f"at {alert.get('endsAt', '-')} (UTC).",
+        )
+    return {"action": "resolved", "keys": [i["key"] for i in issues]}
+
+
+def process_payload(jira: Jira, payload: dict) -> list[dict]:
+    results = []
+    with _lock:
+        for alert in payload.get("alerts", []):
+            try:
+                res = handle_alert(jira, alert)
+            except Exception as exc:  # keep processing the other alerts
+                res = {"error": str(exc)}
+                jlog(logging.ERROR, "alert_failed", error=str(exc), labels=alert.get("labels"))
+            res["alertname"] = alert.get("labels", {}).get("alertname")
+            res["status"] = alert.get("status")
+            jlog(logging.INFO, "alert_processed", **res)
+            results.append(res)
+    return results
+
+
+class Handler(BaseHTTPRequestHandler):
+    jira: Jira | None = None
+
+    def log_message(self, fmt, *args):  # silence default access log
+        pass
+
+    def _send(self, code: int, body: dict) -> None:
+        raw = json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def do_GET(self):
+        if self.path == "/healthz":
+            self._send(200, {"ok": True})
+        else:
+            self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path != "/grafana":
+            self._send(404, {"error": "not found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length > 1_000_000:
+                self._send(413, {"error": "payload too large"})
+                return
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            self._send(400, {"error": "invalid json"})
+            return
+        results = process_payload(self.jira, payload)
+        # Return 200 even on partial failure so Grafana does not retry-storm;
+        # failures are logged and the next repeat_interval re-sends.
+        self._send(200, {"results": results})
+
+
+def main() -> None:
+    missing = [n for n in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_PROJECT_KEY") if not os.environ.get(n)]
+    if missing and not DRY_RUN:
+        raise SystemExit(f"missing required env vars: {', '.join(missing)}")
+    Handler.jira = Jira(JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)
+    server = ThreadingHTTPServer(("0.0.0.0", LISTEN_PORT), Handler)
+    jlog(logging.INFO, "listening", port=LISTEN_PORT, project=JIRA_PROJECT_KEY, dry_run=DRY_RUN)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: checkout-config
+  namespace: shop
+  labels:
+    app: checkout
+data:
+  ui.message: "Checkout service - AI SRE demo"
+  ui.color: "#2f6f4f"
