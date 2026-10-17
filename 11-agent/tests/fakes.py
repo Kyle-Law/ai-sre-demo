@@ -157,6 +157,7 @@ class FakeAnthropic:
         self.script = list(script)
         self.requests = []
         self.messages = SimpleNamespace(create=self._create)
+        self.beta = SimpleNamespace(messages=self.messages)
 
     def _create(self, **kwargs):
         self.requests.append({**kwargs, "messages": list(kwargs["messages"])})  # snapshot

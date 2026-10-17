@@ -138,3 +138,15 @@ def test_retry_after_failed_verification(tmp_path):
     st = agent.state.get("INC-1")
     assert st["attempt"] == 2 and st["stage"] == PR_OPEN and len(gh.opened) == 2
     assert gh.opened[1]["branch"].endswith("attempt-2")
+
+
+def test_turn_budget_never_forces_a_tool(tmp_path):
+    """Current models reject tool_choice type "tool"; near the budget the agent asks instead."""
+    script = [[("kubectl", {"args": ["get", "pods", "-n", "shop"]})]] * 4
+    agent, *_, llm = make_agent(tmp_path, script, max_turns=4)
+    diag = agent.diagnoser.run("INC-9", "context")
+    assert diag.action == "escalate" and diag.escalation_reason == "turn budget exhausted"
+    assert all(r["tool_choice"] == {"type": "auto"} for r in llm.requests)
+    last_user = llm.requests[2]["messages"][-1]["content"]
+    assert any(b.get("type") == "text" and "submit_diagnosis now" in b["text"] for b in last_user)
+    assert all(r["cache_control"] == {"type": "ephemeral"} for r in llm.requests)

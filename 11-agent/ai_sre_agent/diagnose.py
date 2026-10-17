@@ -231,14 +231,22 @@ class Diagnoser:
         max_turns = self.cfg.max_turns
 
         for turn in range(1, max_turns + 1):
-            force_submit = turn >= max_turns - 1
-            resp = self.client.messages.create(
+            if turn == max_turns - 1:
+                # Forcing a specific tool via tool_choice is rejected by current models, so ask instead.
+                _append_user_text(messages, "Turn budget nearly used up: call submit_diagnosis now with what you "
+                                            "have (action=escalate if you are not confident).")
+            resp = self.client.beta.messages.create(
                 model=self.cfg.model,
                 max_tokens=8192,
                 system=system,
                 tools=TOOLS,
-                tool_choice={"type": "tool", "name": "submit_diagnosis"} if force_submit else {"type": "auto"},
+                tool_choice={"type": "auto"},
                 messages=messages,
+                # Every turn resends tools + system + transcript: cache that prefix.
+                cache_control={"type": "ephemeral"},
+                # Once the transcript grows large, clear stale tool output instead of resending it.
+                betas=["context-management-2025-06-27"],
+                context_management={"edits": [{"type": "clear_tool_uses_20250919"}]},
             )
             usage_in += getattr(resp.usage, "input_tokens", 0) or 0
             usage_out += getattr(resp.usage, "output_tokens", 0) or 0
@@ -302,3 +310,12 @@ class Diagnoser:
         )
         self.audit.write("diagnosis", ticket=ticket, **{k: v for k, v in diag.to_dict().items() if k != "investigation"})
         return diag, ""
+
+
+def _append_user_text(messages: list[dict], text: str) -> None:
+    """Add a note to the newest user turn (it may hold tool_result blocks)."""
+    last = messages[-1]
+    if isinstance(last["content"], str):
+        last["content"] += "\n\n" + text
+    else:
+        last["content"].append({"type": "text", "text": text})
