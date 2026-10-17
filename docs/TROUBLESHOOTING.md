@@ -29,6 +29,7 @@
 
 | Problem | Check |
 |---|---|
+| Scenario pushed but pods unchanged, `shop` OutOfSync | An earlier sync of an *invalid* commit is still retrying (ArgoCD → shop → sync status, or `kubectl -n argocd get app shop -o jsonpath='{.status.operationState.operation.sync.revision}'`). While it runs, newer commits aren't applied. Terminate it: ArgoCD UI → shop → **Terminate**, or `kubectl -n argocd patch app shop --type merge -p '{"status":{"operationState":{"phase":"Terminating"}}}'` |
 | `expected exactly 1 match` | A previous scenario is still active or `06-demo-app/manifests` was edited by hand. Run `make reset` |
 | `demo-baseline not found` | Run `make baseline` once on a known-good main |
 | Push rejected | Branch protection with `enforce_admins=true`. The demo operator must be an admin, or inject via a PR |
