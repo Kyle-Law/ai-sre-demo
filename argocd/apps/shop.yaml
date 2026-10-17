@@ -8,7 +8,7 @@ metadata:
 spec:
   project: shop
   source:
-    repoURL: https://github.com/YOUR_GITHUB_ORG/ai-sre-demo.git
+    repoURL: https://github.com/Kyle-Law/ai-sre-demo.git
     targetRevision: main
     path: apps/shop
   destination:
