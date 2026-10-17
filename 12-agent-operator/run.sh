@@ -34,7 +34,8 @@ if os.environ.get("DRY_RUN"):
     env["DRY_RUN"] = os.environ["DRY_RUN"]
 local_only = {"KUBECONFIG", "KUBECTL_BIN", "STATE_DB", "AUDIT_LOG", "GRAFANA_URL", "GITHUB_APP_PRIVATE_KEY_PATH"}
 key_path = env.get("GITHUB_APP_PRIVATE_KEY_PATH", "github-app.pem")
-(out / "controller.env").write_text("".join(f"{k}={v}\n" for k, v in env.items() if k not in local_only and v))
+# Empty values are kept: an empty JIRA_TRANSITION_* means "skip", not "use the default".
+(out / "controller.env").write_text("".join(f"{k}={v}\n" for k, v in env.items() if k not in local_only))
 (out / "investigator.env").write_text("".join(f"{k}={env.get(k, '')}\n" for k in ("ANTHROPIC_API_KEY", "GRAFANA_TOKEN")))
 (out / "key_path").write_text(os.path.expanduser(key_path))
 EOF

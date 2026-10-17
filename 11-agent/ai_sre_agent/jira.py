@@ -98,18 +98,30 @@ class Jira:
                   data=json.dumps({"update": {"labels": [{"add": l} for l in labels]}}))
 
     def transition(self, key: str, name: str) -> bool:
-        """Move the issue through a transition matching `name` (transition or target status)."""
-        if not name:
-            return False
+        """Move the issue to `name` (a transition or target status name). `name` may be a path,
+        "Work in progress > Done", for workflows without a direct transition: each step is taken
+        in order, a step the issue is already at is skipped, and an unavailable step stops it."""
+        steps = [s.strip() for s in (name or "").split(">") if s.strip()]
+        if self.dry_run and steps:
+            self.audit.write("jira_transition", ticket=key, to=name, dry_run=True)
+            return True
+        for step in steps:
+            if not self._transition_step(key, step):
+                return False
+        return bool(steps)
+
+    def _transition_step(self, key: str, name: str) -> bool:
         res = self._req("GET", f"/rest/api/2/issue/{key}/transitions")
-        wanted = name.strip().lower()
+        wanted = name.lower()
         for t in res.get("transitions", []):
             if t.get("name", "").lower() == wanted or t.get("to", {}).get("name", "").lower() == wanted:
-                self.audit.write("jira_transition", ticket=key, to=name, dry_run=self.dry_run)
-                if not self.dry_run:
-                    self._req("POST", f"/rest/api/2/issue/{key}/transitions",
-                              data=json.dumps({"transition": {"id": t["id"]}}))
+                self.audit.write("jira_transition", ticket=key, to=name, dry_run=False)
+                self._req("POST", f"/rest/api/2/issue/{key}/transitions",
+                          data=json.dumps({"transition": {"id": t["id"]}}))
                 return True
+        current = self._req("GET", f"/rest/api/2/issue/{key}", params={"fields": "status"})
+        if current.get("fields", {}).get("status", {}).get("name", "").lower() == wanted:
+            return True  # already there
         self.audit.write("jira_transition_unavailable", ticket=key, to=name,
                          available=[t.get("name") for t in res.get("transitions", [])])
         return False
