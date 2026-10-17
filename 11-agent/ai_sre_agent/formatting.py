@@ -84,8 +84,8 @@ def synced_comment(app: str, revision: str, health: str) -> str:
 
 
 def _fmt(ts: str | None) -> str:
-    dt = parse_iso(ts)
-    return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "-"
+    dt = parse_iso(ts)  # sources mix offsets (Jira: +0800); the timeline is labelled UTC
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if dt else "-"
 
 
 def _delta(start: str | None, end: str | None) -> str:

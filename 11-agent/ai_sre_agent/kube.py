@@ -57,8 +57,9 @@ class Kubectl:
         self.kubectl_bin = kubectl_bin
         self.timeout = timeout
 
-    def run(self, args: list[str], *, validate: bool = True) -> tuple[int, str]:
-        """Return (exit_code, combined_output). Never raises for kubectl errors."""
+    def run(self, args: list[str], *, validate: bool = True, full: bool = False) -> tuple[int, str]:
+        """Return (exit_code, combined_output). Never raises for kubectl errors.
+        Output is truncated for the model unless full=True (for output the agent parses itself)."""
         if validate:
             validate_args(args)
         env = {**os.environ, "KUBECONFIG": self.kubeconfig}
@@ -74,10 +75,11 @@ class Kubectl:
         except FileNotFoundError:
             return 127, f"kubectl binary not found: {self.kubectl_bin}"
         output = (proc.stdout or "") + (("\n[stderr]\n" + proc.stderr) if proc.stderr else "")
-        return proc.returncode, truncate(output)
+        return proc.returncode, output if full else truncate(output)
 
     def get_json(self, args: list[str]) -> dict | None:
-        code, out = self.run([*args, "-o", "json"])
+        # Untruncated: a cut-off JSON document doesn't parse (the Application list is >100 KB).
+        code, out = self.run([*args, "-o", "json"], full=True)
         if code != 0:
             return None
         try:

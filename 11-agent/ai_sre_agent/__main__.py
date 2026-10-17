@@ -61,7 +61,23 @@ def cmd_investigate(cfg: Config) -> None:
     print(RESULT_MARKER + json.dumps(diag.__dict__, default=str), flush=True)
 
 
+def single_instance(state_db: str):
+    """Hold an exclusive lock next to the state DB: two local agents would race on it and act
+    on the same ticket twice (e.g. a DRY_RUN terminal left running next to the real one)."""
+    import fcntl
+    import os
+    path = os.path.join(os.path.dirname(os.path.abspath(state_db)), "agent.lock")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fh = open(path, "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(f"Another agent is already running with this state ({path}). Stop it first.")
+    return fh  # keep a reference: the lock lives as long as the file is open
+
+
 def cmd_run(cfg: Config, incluster: bool = False) -> None:
+    lock = None if incluster else single_instance(cfg.state_db)  # in-cluster: replicas: 1
     agent = build(cfg, incluster=incluster)
     stop = {"flag": False}
 
