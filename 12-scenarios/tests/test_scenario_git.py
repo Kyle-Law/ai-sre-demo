@@ -21,7 +21,12 @@ def repo(tmp_path):
     sh("git", "init", "--bare", "-q", "-b", "main", str(remote), cwd=tmp_path)
     shutil.copytree(ROOT, work, ignore=shutil.ignore_patterns(
         ".git", "__pycache__", ".pytest_cache", "*.db", ".venv", ".agent",
-        "demo.env", "agent.env", "*.pem", "*.kubeconfig"))
+        "demo.env", "agent.env", "*.pem", "*.kubeconfig", ".demo-state.json"))
+    # Start from the healthy app even if a scenario is injected in the real checkout.
+    for rel in ("06-demo-app/manifests/deployment.yaml", "06-demo-app/manifests/configmap.yaml"):
+        res = subprocess.run(["git", "show", f"demo-baseline:{rel}"], cwd=ROOT, capture_output=True, text=True)
+        if res.returncode == 0:
+            (work / rel).write_text(res.stdout)
     for args in (["init", "-q", "-b", "main"], ["config", "user.email", "demo@example.com"],
                  ["config", "user.name", "Demo Operator"], ["add", "-A"], ["commit", "-qm", "baseline"],
                  ["remote", "add", "origin", str(remote)], ["push", "-q", "origin", "main"]):

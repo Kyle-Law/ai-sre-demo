@@ -4,6 +4,7 @@ baseline and produces valid YAML, and placeholders are consistent."""
 
 import importlib.util
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("demo", ROOT / "12-scenarios/demo.py")
 demo = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(demo)
+
+
+def baseline_text(rel: str) -> str:
+    """Demo-app files as of the demo-baseline tag when it exists, so these tests still pass
+    while a scenario is injected (the working tree is deliberately broken then)."""
+    res = subprocess.run(["git", "show", f"demo-baseline:{rel}"], cwd=ROOT, capture_output=True, text=True)
+    return res.stdout if res.returncode == 0 else (ROOT / rel).read_text()
 
 
 def yaml_files():
@@ -78,7 +86,7 @@ def test_kustomization_references_exist(kdir):
 def test_scenario_applies_once_and_stays_valid(sid):
     files = {}
     for edit in demo.SCENARIOS[sid]["edits"]:
-        text = files.get(edit["file"]) or (ROOT / edit["file"]).read_text()
+        text = files.get(edit["file"]) or baseline_text(edit["file"])
         assert text.count(edit["find"]) == 1, f"{sid}: find string must match exactly once in {edit['file']}"
         files[edit["file"]] = text.replace(edit["find"], edit["replace"])
     for f, text in files.items():
@@ -88,16 +96,40 @@ def test_scenario_applies_once_and_stays_valid(sid):
 
 def test_scenario_semantics():
     def mutate(sid):
-        text = (ROOT / demo.DEPLOY).read_text()
+        text = baseline_text(demo.DEPLOY)
         for e in demo.SCENARIOS[sid]["edits"]:
             if e["file"] == demo.DEPLOY:
                 text = text.replace(e["find"], e["replace"])
         return yaml.safe_load(text)["spec"]["template"]["spec"]["containers"][0]
 
     assert mutate("01-oomkilled")["resources"]["limits"]["memory"] == "64Mi"
+    assert mutate("01-oomkilled")["resources"]["requests"]["memory"] == "48Mi"
     assert mutate("02-bad-image-tag")["image"].endswith(":6.15.0-hotfix1")
     assert mutate("03-readiness-probe")["readinessProbe"]["httpGet"]["port"] == 8080
     assert mutate("05-cpu-request-typo")["resources"]["requests"]["cpu"] == "50"
+
+
+def _quantity(q: str) -> float:
+    units = {"m": 1e-3, "Ki": 2**10, "Mi": 2**20, "Gi": 2**30, "K": 1e3, "M": 1e6, "G": 1e9}
+    for suffix, factor in sorted(units.items(), key=lambda u: -len(u[0])):
+        if str(q).endswith(suffix):
+            return float(str(q)[: -len(suffix)]) * factor
+    return float(q)
+
+
+@pytest.mark.parametrize("sid", [None] + [s for s, v in demo.SCENARIOS.items() if "edits" in v])
+def test_requests_never_exceed_limits(sid):
+    """The API server rejects request > limit; such a scenario would never roll out."""
+    text = baseline_text(demo.DEPLOY)
+    for e in demo.SCENARIOS[sid]["edits"] if sid else []:
+        if e["file"] == demo.DEPLOY:
+            text = text.replace(e["find"], e["replace"])
+    for c in yaml.safe_load(text)["spec"]["template"]["spec"]["containers"]:
+        res = c.get("resources", {})
+        for name, limit in res.get("limits", {}).items():
+            request = res.get("requests", {}).get(name)
+            if request is not None:
+                assert _quantity(request) <= _quantity(limit), f"{sid}: {name} request {request} > limit {limit}"
 
 
 def test_alert_rules_cover_every_scenario():

@@ -46,13 +46,15 @@ SCENARIOS: dict[str, dict] = {
         "title": "Memory limit 'rightsized' below the working set -> OOMKilled",
         "alert": "ContainerOOMKilled",
         "time_to_alert": "~2 min",
-        "commit_message": "chore(checkout): rightsize memory limit per FinOps report\n\n"
+        "commit_message": "chore(checkout): rightsize memory request/limit per FinOps report\n\n"
         "FinOps dashboard shows avg usage well under the limit; trimming to save cost.",
+        # Request and limit both move: the API server rejects request > limit, so
+        # lowering only the limit would never roll out (ArgoCD sync error, no OOM).
         "edits": [
-            {"file": DEPLOY, "find": "            limits:\n              memory: 256Mi",
-             "replace": "            limits:\n              memory: 64Mi"},
+            {"file": DEPLOY, "find": "              memory: 128Mi\n            limits:\n              memory: 256Mi",
+             "replace": "              memory: 48Mi\n            limits:\n              memory: 64Mi"},
         ],
-        "expected_fix": "Restore limits.memory to >= the working set (256Mi), e.g. revert the commit.",
+        "expected_fix": "Restore memory to >= the working set (request 128Mi, limit 256Mi), e.g. revert the commit.",
     },
     "02-bad-image-tag": {
         "title": "Typo'd hotfix image tag -> ImagePullBackOff",

@@ -23,14 +23,15 @@ down.
 
 ## 01-oomkilled: memory limit "rightsized"
 
-- **Commit:** `chore(checkout): rightsize memory limit per FinOps report`
-- **Change:** `limits.memory: 256Mi → 64Mi`. The app keeps a ~96 MB catalog cache in memory
+- **Commit:** `chore(checkout): rightsize memory request/limit per FinOps report`
+- **Change:** memory request `128Mi → 48Mi`, limit `256Mi → 64Mi`. (Both move: Kubernetes rejects a
+  request above its limit, so a limit-only change would never roll out.) The app keeps a ~96 MB catalog cache in memory
   (`--stress-memory=96`).
 - **Alert:** `ContainerOOMKilled` (~2 min)
 - **What the agent should find:** new pods `OOMKilled`/CrashLoopBackOff. `describe` shows
   `Last State: Terminated, Reason: OOMKilled`; `recent_commits` shows the FinOps commit; the memory
   working set (~110 MB) exceeds 64Mi.
-- **Expected PR:** restore `memory: 256Mi`.
+- **Expected PR:** restore request `128Mi` / limit `256Mi`.
 - **Talking point:** the cost optimisation wasn't wrong in spirit; it lacked the working-set data
   the agent pulled in seconds.
 
