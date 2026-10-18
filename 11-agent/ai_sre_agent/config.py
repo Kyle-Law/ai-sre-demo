@@ -35,8 +35,8 @@ class Config:
     grafana_prom_uid: str
 
     # Jira
-    jira_base_url: str
-    jira_email: str
+    jira_base_url: str      # the site: ticket links
+    jira_email: str         # empty with a service account's scoped token (Bearer auth)
     jira_api_token: str
     jira_project_key: str
     jira_triage_label: str
@@ -54,6 +54,7 @@ class Config:
     github_app_id: str = ""
     github_app_private_key_path: str = ""
     github_app_installation_id: str = ""  # optional: looked up from the repo when empty
+    jira_api_url: str = ""  # scoped tokens: https://api.atlassian.com/ex/jira/<cloudId>
 
     # Loop behaviour
     poll_seconds: int = 20
@@ -96,7 +97,8 @@ class Config:
             grafana_token=_env("GRAFANA_TOKEN", required=True),
             grafana_prom_uid=_env("GRAFANA_PROM_UID", "prometheus"),
             jira_base_url=_env("JIRA_BASE_URL", required=writer).rstrip("/"),
-            jira_email=_env("JIRA_EMAIL", required=writer),
+            jira_email=_env("JIRA_EMAIL", required=writer and not _env("JIRA_API_URL")),
+            jira_api_url=_env("JIRA_API_URL"),
             jira_api_token=_env("JIRA_API_TOKEN", required=writer),
             jira_project_key=_env("JIRA_PROJECT_KEY", required=writer),
             jira_triage_label=_env("JIRA_TRIAGE_LABEL", "ai-triage"),

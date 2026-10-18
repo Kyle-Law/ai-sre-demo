@@ -14,8 +14,10 @@ reachable_from() { pod_sh "$1" "wget -qO- -T 5 $BRIDGE/healthz"; }
 blocked_from() { ! reachable_from "$1"; }
 contact_point_loaded() { grafana_api /api/v1/provisioning/contact-points | grep -q jira-bridge-webhook; }
 policy_routes_to_bridge() { grafana_api /api/v1/provisioning/policies | grep -q '"receiver":"jira-bridge"'; }
-jira_auth_ok() {
-  curl -fsS -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" "${JIRA_BASE_URL}/rest/api/3/project/${JIRA_PROJECT_KEY}" >/dev/null
+jira_auth_ok() {  # same auth rules as the bridge: email -> Basic, none -> Bearer (service account)
+  local auth=(-u "${JIRA_EMAIL:-}:${JIRA_API_TOKEN}")
+  [[ -n "${JIRA_EMAIL:-}" ]] || auth=(-H "Authorization: Bearer ${JIRA_API_TOKEN}")
+  curl -fsS "${auth[@]}" "${JIRA_API_URL:-$JIRA_BASE_URL}/rest/api/3/project/${JIRA_PROJECT_KEY}" >/dev/null
 }
 
 echo "Alert bridge"

@@ -133,7 +133,7 @@ def test_non_triage_alerts_ignored(bridge):
 def test_agent_parses_bridge_description(bridge):
     """The agent's ALERT_JSON parser must understand what the bridge writes."""
     import sys
-    sys.path.insert(0, str(BRIDGE.parents[3] / "agent"))
+    sys.path.insert(0, str(BRIDGE.parents[2] / "11-agent"))
     from ai_sre_agent.jira import Jira as AgentJira
     mod, jira, state = bridge
     mod.process_payload(jira, {"alerts": [alert("ContainerOOMKilled")]})
@@ -144,3 +144,9 @@ def test_agent_parses_bridge_description(bridge):
     alerts = AgentJira.extract_alerts(fake)
     assert [a["alertname"] for a in alerts] == ["ContainerOOMKilled", "DeploymentRolloutStuck"]
     assert alerts[0]["labels"]["workload"] == "checkout"
+
+
+def test_auth_header_user_token_vs_service_account(bridge):
+    mod, _, _ = bridge
+    assert mod.Jira("u", "bot@x", "t").headers["Authorization"].startswith("Basic ")
+    assert mod.Jira("u", "", "ATSTT-scoped").headers["Authorization"] == "Bearer ATSTT-scoped"

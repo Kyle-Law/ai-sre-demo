@@ -38,7 +38,8 @@ def build(cfg: Config, dry_run: bool | None = None, incluster: bool = False) -> 
     kube = Kubectl(cfg.kubeconfig, cfg.kubectl_bin)
     grafana = Grafana(cfg.grafana_url, cfg.grafana_token, cfg.grafana_prom_uid)
     github = GitHub(cfg.github_api_url, auth_from_config(cfg), cfg.github_repo, cfg.github_base_branch, audit, dry)
-    jira = Jira(cfg.jira_base_url, cfg.jira_email, cfg.jira_api_token, cfg.jira_project_key, audit, dry)
+    jira = Jira(cfg.jira_base_url, cfg.jira_email, cfg.jira_api_token, cfg.jira_project_key, audit, dry,
+                api_url=cfg.jira_api_url)
     if incluster:
         from .incluster import CRStateStore, JobDiagnoser, operator_settings
         s = operator_settings()
