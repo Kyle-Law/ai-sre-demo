@@ -1,7 +1,7 @@
-"""In-cluster mode (step 12): the same workflow, with two parts swapped out.
+"""The agent's cluster runtime (step 12): where state lives and where the LLM runs.
 
-* CRStateStore - incident state lives in one AgentSession custom resource per ticket
-  instead of a local SQLite file, so `kubectl get agentsessions` is the incident board.
+* CRStateStore - incident state lives in one AgentSession custom resource per ticket,
+  so it survives restarts and `kubectl get agentsessions` is the incident board.
 * JobDiagnoser - every LLM diagnosis runs as a short-lived Job under the read-only
   ServiceAccount. The Job holds no Jira or GitHub write credentials; it prints its
   Diagnosis and exits. Only this controller (deterministic code) writes to Jira/GitHub.
@@ -44,7 +44,7 @@ def session_name(key: str) -> str:
 
 
 class CRStateStore:
-    """StateStore interface backed by AgentSession resources (state in .status)."""
+    """Incident state backed by AgentSession resources (state in .status)."""
 
     def __init__(self, namespace: str):
         self.ns = namespace
@@ -72,7 +72,7 @@ class CRStateStore:
             "metadata": {"name": name, "namespace": self.ns, "labels": {"ai-sre.demo/ticket": name}},
             "spec": {"ticket": key},
         }))
-        # JSON-patch "add" on /status replaces the whole status, matching StateStore.put.
+        # JSON-patch "add" on /status replaces the whole status: put() writes the full state.
         kubectl("-n", self.ns, "patch", "agentsession", name, "--subresource=status", "--type=json",
                 "-p", json.dumps([{"op": "add", "path": "/status", "value": status}]))
         return {**status, "key": key}
@@ -107,7 +107,7 @@ class JobDiagnoser:
             "AGENT_ALLOWED_PATHS": ",".join(self.cfg.allowed_paths), "ARGOCD_NAMESPACE": self.cfg.argocd_namespace,
             "GITHUB_REPO": self.cfg.github_repo, "GITHUB_BASE_BRANCH": self.cfg.github_base_branch,
             "GRAFANA_URL": self.cfg.grafana_url, "GRAFANA_PROM_UID": self.cfg.grafana_prom_uid,
-            "KUBECONFIG": "", "HOME": "/tmp", "KUBECACHEDIR": "/tmp/kube-cache", "AUDIT_LOG": "/tmp/audit.jsonl",
+            "HOME": "/tmp", "KUBECACHEDIR": "/tmp/kube-cache", "AUDIT_LOG": "/tmp/audit.jsonl",
         }
         return {
             "apiVersion": "batch/v1", "kind": "Job",
@@ -121,8 +121,8 @@ class JobDiagnoser:
                     "metadata": {"labels": {"app": "ai-sre-investigator", "ai-sre.demo/ticket": session_name(ticket)}},
                     "spec": {
                         "serviceAccountName": self.sa,
-                        # The step 09 ServiceAccount disables token automount (it's meant for an
-                        # external kubeconfig); this pod needs its token to call the API.
+                        # The step 09 ServiceAccount disables token automount by default;
+                        # only these Jobs opt in, because they call the API with it.
                         "automountServiceAccountToken": True,
                         "restartPolicy": "Never",
                         "priorityClassName": "ai-sre-critical",

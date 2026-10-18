@@ -26,11 +26,11 @@ for line in pathlib.Path("agent.env").read_text().splitlines():
     if not sep or not key or key.startswith("#"):
         continue
     # Read the value the way bash does (quotes, trailing "# comment"), so the cluster
-    # sees exactly what the local agent sees, e.g. NAME="AI SRE Agent"   # comment
+    # sees exactly what you wrote, e.g. NAME="AI SRE Agent"   # comment
     env[key] = " ".join(shlex.split(value, comments=True))
 if os.environ.get("DRY_RUN"):
     env["DRY_RUN"] = os.environ["DRY_RUN"]
-local_only = {"KUBECONFIG", "KUBECTL_BIN", "STATE_DB", "AUDIT_LOG", "GRAFANA_URL", "GITHUB_APP_PRIVATE_KEY_PATH"}
+local_only = {"GRAFANA_URL", "GITHUB_APP_PRIVATE_KEY_PATH"}  # the Deployment sets the in-cluster values
 key_path = env.get("GITHUB_APP_PRIVATE_KEY_PATH", "github-app.pem")
 # Empty values are kept: an empty JIRA_TRANSITION_* means "skip", not "use the default".
 (out / "controller.env").write_text("".join(f"{k}={v}\n" for k, v in env.items() if k not in local_only))
@@ -56,8 +56,7 @@ kubectl -n ai-sre-agent rollout status deploy/agent-controller --timeout=180s
 
 cat <<EOF
 
-The agent now runs in the cluster. Stop any local agent (make step-11): both would
-handle the same tickets.
+The agent now runs in the cluster.
   kubectl -n ai-sre-agent get agentsessions -w            # incident board
   kubectl -n ai-sre-agent logs deploy/agent-controller -f # controller log
   kubectl -n ai-sre get jobs -l app=ai-sre-investigator   # diagnosis Jobs

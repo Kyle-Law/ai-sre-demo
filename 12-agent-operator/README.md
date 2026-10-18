@@ -1,6 +1,6 @@
 # 12 · Agent operator: the agent inside the cluster
 
-**Goal:** run the same agent as step 11, but as a Kubernetes controller. Each Jira ticket becomes
+**Goal:** run the agent from step 11 as a Kubernetes controller. Each Jira ticket becomes
 an **AgentSession** resource, and every LLM diagnosis runs as its own short-lived **Job** that holds
 no write credentials at all.
 
@@ -42,14 +42,12 @@ ns ai-sre-agent                                   ns ai-sre
 
 ## Run
 
-Steps 08–11 first (Jira, read-only access, GitHub App, a working `agent.env`). **Stop the local agent
-(step 11)**: both would pick up the same tickets. Tickets the local agent already handled are recorded
-only in its local `.agent/state.db`, so close them in Jira first.
+Steps 08–11 first (Jira, read-only access, GitHub App, a working `agent.env`).
 
 ```bash
 DRY_RUN=true make step-12     # rehearse: diagnoses and logs, writes nothing to Jira/GitHub
 make verify-12                # deployment, admission policy, RBAC for both identities
-make verify-12 ARGS=--selftest   # (or ./12-agent-operator/verify.sh --selftest)
+make verify-12 ARGS=--selftest   # + every connection and the RBAC matrix, from inside the controller
 make step-12                  # for real (re-run after changing agent.env or the agent code)
 ```
 
@@ -67,7 +65,7 @@ kubectl -n ai-sre create job rogue --image=busybox -- true    # denied by the ad
 Then run a scenario from step 13 and watch an AgentSession appear and move through
 `DIAGNOSING → PR_OPEN → MERGED → SYNCED → VERIFIED`.
 
-**Back to local mode:** `kubectl -n argocd delete application agent-operator` (ArgoCD prunes the
-controller), then `make step-11`.
+**Stop the agent:** `kubectl -n argocd delete application agent-operator` (ArgoCD prunes the
+controller).
 
 **Next:** [13 · Failure scenarios](../13-scenarios/)

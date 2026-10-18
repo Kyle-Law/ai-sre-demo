@@ -10,12 +10,14 @@ and nothing that lets it change the cluster. Then prove it, line by line.
   - ConfigMaps only in `shop`; ArgoCD Applications only in `argocd` (to check sync status)
   - **no** writes, **no** Secrets, **no** `exec`/`attach`/`port-forward`, **no** token requests or
     impersonation
-- **Bound ServiceAccount tokens**: [generate-agent-kubeconfig.sh](generate-agent-kubeconfig.sh) uses
-  `kubectl create token --duration 48h`. The token expires on its own and dies with the
-  ServiceAccount. Nothing long-lived sits on disk. Re-run `make step-09` to rotate.
-- **Proving it, not claiming it**: [verify-rbac.sh](verify-rbac.sh) runs `kubectl auth can-i` for
-  every allow and deny, then tries a real `delete pod` (server-side dry run) that the API server
-  must reject. It's a good moment to show live.
+- **No credential to hand out**: the agent runs in the cluster (step 12) as this ServiceAccount.
+  Kubernetes mounts a short-lived, auto-rotated token into its pods, so there's no kubeconfig to
+  copy, store or expire. The token isn't mounted by default (`automountServiceAccountToken: false`);
+  only the diagnosis Jobs opt in.
+- **Proving it, not claiming it**: [verify-rbac.sh](verify-rbac.sh) impersonates the ServiceAccount
+  (`kubectl --as=system:serviceaccount:ai-sre:ai-sre-agent`), runs `kubectl auth can-i` for every
+  allow and deny, then tries a real `delete pod` (server-side dry run) that the API server must
+  reject. It's a good moment to show live.
 - **Grafana access**: [create-grafana-token.sh](create-grafana-token.sh) creates a Grafana service
   account with the **Viewer** role. The agent can run PromQL and read alert state, but can't edit
   rules.
@@ -25,7 +27,7 @@ and nothing that lets it change the cluster. Then prove it, line by line.
 ## Run
 
 ```bash
-make step-09                                 # RBAC via ArgoCD + agent.kubeconfig
+make step-09                                 # ServiceAccount + RBAC via ArgoCD
 make verify-09                               # 23 checks + a live delete that must fail
 ./09-agent-access/create-grafana-token.sh    # prints GRAFANA_URL / GRAFANA_TOKEN for agent.env
 ```
@@ -33,10 +35,10 @@ make verify-09                               # 23 checks + a live delete that mu
 ## Look around
 
 ```bash
-KUBECONFIG=agent.kubeconfig kubectl get pods -A          # works
-KUBECONFIG=agent.kubeconfig kubectl -n shop get secrets  # Forbidden
-KUBECONFIG=agent.kubeconfig kubectl auth can-i --list -n shop
-head -1 agent.kubeconfig                                 # token expiry
+AS=system:serviceaccount:ai-sre:ai-sre-agent
+kubectl --as=$AS get pods -A                 # works
+kubectl --as=$AS -n shop get secrets         # Forbidden
+kubectl auth can-i --list -n shop --as=$AS   # everything it may do in shop
 ```
 
 **Next:** [10 · GitHub guardrails](../10-github-guardrails/)

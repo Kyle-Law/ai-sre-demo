@@ -6,6 +6,31 @@ import json
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+class MemoryStore:
+    """Same interface as incluster.CRStateStore (AgentSessions), kept in a dict."""
+
+    def __init__(self):
+        self.rows: dict[str, dict] = {}
+
+    def get(self, key):
+        return dict(self.rows[key]) if key in self.rows else None
+
+    def put(self, key, stage, data):
+        self.rows[key] = {**{k: v for k, v in data.items() if k != "key"}, "stage": stage, "key": key}
+        return dict(self.rows[key])
+
+    def update(self, key, stage=None, **fields):
+        current = self.get(key) or {}
+        current.update(fields)
+        return self.put(key, stage or current.get("stage", "NEW"), current)
+
+    def in_stage(self, *stages):
+        return [dict(r) for r in self.rows.values() if r["stage"] in stages]
+
+    def all(self):
+        return [dict(r) for r in self.rows.values()]
+
+
 BASE_DEPLOY = """apiVersion: apps/v1
 kind: Deployment
 metadata:

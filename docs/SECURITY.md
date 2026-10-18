@@ -35,24 +35,23 @@ passes through a human-reviewed pull request and is applied by ArgoCD, never by 
 
 | Secret | Lives in | Lifetime |
 |---|---|---|
-| Agent kubeconfig (bound SA token) | `agent.kubeconfig` (0600) | `--duration` (default 48h) |
+| Agent's Kubernetes token (ServiceAccount) | mounted into its pods by Kubernetes, never on your disk | ~1h, rotated by the kubelet |
 | Grafana Viewer token | `agent.env` | 7 days |
 | GitHub App private key | `github-app.pem` (0600) | until revoked in the App settings; it only mints tokens |
 | GitHub App installation token | agent memory only | 1 hour, one repo, Contents + Pull requests |
-| Jira API token (bot) | `agent.env`, plus a K8s Secret for the bridge | per Atlassian policy |
-| Anthropic API key | `agent.env` | rotate after the demo |
+| Jira API token (service account) | `agent.env` → K8s Secret for the controller; the bridge has its own | per Atlassian policy |
+| Anthropic API key | `agent.env` → K8s Secrets for the controller and the diagnosis Jobs | rotate after the demo |
 | Grafana admin password | K8s Secret `monitoring/grafana-admin` | — |
 
-Nothing above is committed to git (`.gitignore` covers `demo.env`, `*.kubeconfig`, `agent.env`, `*.pem`).
+Nothing above is committed to git (`.gitignore` covers `demo.env`, `agent.env`, `*.pem`).
 
-**Local-demo caveat:** the agent runs as your macOS user, so OS-level isolation from your admin
-kubeconfig is not enforced; `11-agent/run.sh` only makes sure the agent *process* is handed
-`agent.kubeconfig` and never your `KUBECONFIG`. In production, run the agent on its own host or pod
-with only its own credentials mounted.
+The agent never runs on your machine: its kubectl wrapper refuses to run outside a pod, where it
+would otherwise pick up your admin `~/.kube/config`. `make verify-11` checks only the external
+services from your machine.
 
-## In-cluster mode (step 12)
+## Two identities (step 12)
 
-The local agent holds every credential in one process. In-cluster mode splits it:
+The agent's credentials are split between two identities:
 
 | Identity | Runs | Holds | Kubernetes permissions |
 |---|---|---|---|
@@ -64,8 +63,8 @@ A ValidatingAdmissionPolicy pins every Job in `ai-sre` to that ServiceAccount, t
 can't be turned into running something else. Both identities tolerate a cordoned node so the agent
 still works during the incident it's investigating.
 
-Trade-off: the agent now runs inside the cluster it diagnoses. If the cluster can't run pods at all,
-fall back to the local agent (step 11), which watches from outside.
+Trade-off: the agent runs inside the cluster it diagnoses. If the cluster can't run pods at all,
+the agent is down too; the alert bridge still opens the Jira ticket, so a human gets paged.
 
 ## Data sent to the model
 
@@ -79,13 +78,13 @@ review log contents for PII and use a dedicated API workspace with appropriate d
   sync, verification, MTTR.
 - **Git**: the PR conversation, the merge commit, and `incidents/<KEY>.md`.
 - **ArgoCD**: sync history with revisions.
-- **Agent audit log** (`.agent/audit.jsonl`): every tool call with input and truncated output, every
-  external write, every state transition.
+- **Agent logs**: the controller log (`kubectl -n ai-sre-agent logs deploy/agent-controller`) has every
+  external write and state transition; each diagnosis Job's log has every tool call with input and
+  truncated output.
 
 ## Going beyond the demo
 
 - Keep the GitHub App key in a secret manager or HSM instead of a file.
-- Issue the kubeconfig through your identity provider or an external secret store, rotated automatically.
 - Ship `audit.jsonl` to your SIEM.
 - Add an OPA/Kyverno admission policy as one more gate behind ArgoCD.
 - Use separate agent identities per environment or namespace.

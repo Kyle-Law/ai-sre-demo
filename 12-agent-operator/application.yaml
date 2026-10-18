@@ -4,7 +4,7 @@ kind: Application
 metadata:
   name: agent-operator
   namespace: argocd
-  # Deleting the Application also deletes what it deployed (back to local mode).
+  # Deleting the Application also deletes what it deployed.
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

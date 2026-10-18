@@ -1,8 +1,9 @@
 """Read-only kubectl wrapper.
 
-Defence in depth: the kubeconfig's RBAC already denies every write, but the
-agent also refuses to *attempt* anything outside a small read-only allowlist,
-never reads Secrets, and never lets the model point kubectl elsewhere.
+Runs only inside the cluster, as the pod's ServiceAccount (step 12). Defence in depth: that
+ServiceAccount's RBAC already denies every write, but the agent also refuses to *attempt*
+anything outside a small read-only allowlist, never reads Secrets, and never lets the model
+point kubectl elsewhere.
 """
 
 from __future__ import annotations
@@ -51,9 +52,12 @@ def validate_args(args: list[str]) -> None:
                 raise KubectlRefused("reading Secrets is never allowed for the agent")
 
 
+def in_cluster() -> bool:
+    return bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
+
+
 class Kubectl:
-    def __init__(self, kubeconfig: str, kubectl_bin: str = "kubectl", timeout: int = 30):
-        self.kubeconfig = kubeconfig
+    def __init__(self, kubectl_bin: str = "kubectl", timeout: int = 30):
         self.kubectl_bin = kubectl_bin
         self.timeout = timeout
 
@@ -62,14 +66,14 @@ class Kubectl:
         Output is truncated for the model unless full=True (for output the agent parses itself)."""
         if validate:
             validate_args(args)
-        env = {**os.environ, "KUBECONFIG": self.kubeconfig}
-        cmd = [self.kubectl_bin, *args]
-        # Any connection override (even --request-timeout) stops kubectl from falling back to the
-        # pod's ServiceAccount, so only add it with a kubeconfig. subprocess timeout still applies.
-        if self.kubeconfig and args[0] not in {"explain", "version", "api-resources"}:
-            cmd.append("--request-timeout=20s")
+        # Outside a pod kubectl would fall back to ~/.kube/config: your admin credentials.
+        if not in_cluster():
+            return 1, "kubectl runs only inside the cluster, as the agent's ServiceAccount (step 12)"
+        # No KUBECONFIG and no connection flags (even --request-timeout): either one stops kubectl
+        # from using the pod's ServiceAccount token. The subprocess timeout still applies.
+        env = {k: v for k, v in os.environ.items() if k != "KUBECONFIG"}
         try:
-            proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=self.timeout)
+            proc = subprocess.run([self.kubectl_bin, *args], env=env, capture_output=True, text=True, timeout=self.timeout)
         except subprocess.TimeoutExpired:
             return 124, f"kubectl timed out after {self.timeout}s"
         except FileNotFoundError:

@@ -52,15 +52,27 @@ def test_truncate_keeps_head_and_tail():
 
 
 
-def test_no_connection_override_in_cluster(monkeypatch):
-    """--request-timeout disables kubectl's in-cluster fallback; only use it with a kubeconfig."""
+def test_uses_the_pods_service_account_only(monkeypatch):
+    """No KUBECONFIG and no connection flags (even --request-timeout): either one stops kubectl
+    from using the pod's ServiceAccount token."""
     from ai_sre_agent import kube
     seen = []
-    monkeypatch.setattr(kube.subprocess, "run", lambda cmd, **kw: seen.append(cmd) or
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
+    monkeypatch.setenv("KUBECONFIG", "/home/me/.kube/admin")
+    monkeypatch.setattr(kube.subprocess, "run", lambda cmd, env, **kw: seen.append((cmd, env)) or
                         kube.subprocess.CompletedProcess(cmd, 0, "", ""))
-    kube.Kubectl("").run(["get", "pods", "-n", "shop"])
-    kube.Kubectl("agent.kubeconfig").run(["get", "pods", "-n", "shop"])
-    assert "--request-timeout=20s" not in seen[0] and "--request-timeout=20s" in seen[1]
+    kube.Kubectl().run(["get", "pods", "-n", "shop"])
+    cmd, env = seen[0]
+    assert cmd == ["kubectl", "get", "pods", "-n", "shop"] and "KUBECONFIG" not in env
+
+
+def test_refuses_to_run_outside_the_cluster(monkeypatch):
+    """On a laptop kubectl would fall back to ~/.kube/config: the admin's credentials."""
+    from ai_sre_agent import kube
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    monkeypatch.setattr(kube.subprocess, "run", lambda *a, **kw: pytest.fail("kubectl was called"))
+    code, out = kube.Kubectl().run(["get", "pods", "-n", "shop"])
+    assert code == 1 and "only inside the cluster" in out
 
 
 def test_get_json_parses_output_longer_than_the_model_limit(monkeypatch):
@@ -69,7 +81,8 @@ def test_get_json_parses_output_longer_than_the_model_limit(monkeypatch):
     from ai_sre_agent import kube
     big = json.dumps({"items": [{"metadata": {"name": f"app-{i}"}, "pad": "x" * 500} for i in range(400)]})
     assert len(big) > kube.MAX_OUTPUT_CHARS
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.96.0.1")
     monkeypatch.setattr(kube.subprocess, "run", lambda cmd, **kw: kube.subprocess.CompletedProcess(cmd, 0, big, ""))
-    k = kube.Kubectl("agent.kubeconfig")
+    k = kube.Kubectl()
     assert len(k.get_json(["get", "applications.argoproj.io", "-n", "argocd"])["items"]) == 400
     assert len(k.run(["get", "pods"])[1]) < len(big)          # what the model sees stays truncated

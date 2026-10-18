@@ -1,12 +1,10 @@
 # credentials and local config: never commit
 demo.env
 agent.env
-*.kubeconfig
 .env
 
 # local state
 .demo-state.json
-*.db
 *.jsonl
 
 # python
@@ -17,8 +15,7 @@ __pycache__/
 *.egg-info/
 build/
 
-# local agent state, GitHub App private key
-.agent/
+# GitHub App private key
 *.pem
 
 secrets.env

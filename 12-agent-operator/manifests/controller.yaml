@@ -110,12 +110,10 @@ spec:
           envFrom:
             - secretRef: {name: controller-credentials}   # from agent.env, created by run.sh
           env:
-            - {name: KUBECONFIG, value: ""}               # use the pod's ServiceAccount
             - {name: KUBECTL_BIN, value: kubectl}
             - {name: HOME, value: /tmp}
             - {name: KUBECACHEDIR, value: /tmp/kube-cache}
             - {name: AUDIT_LOG, value: /tmp/audit.jsonl}  # also logged to stdout
-            - {name: STATE_DB, value: /tmp/unused.db}     # state lives in AgentSessions
             - {name: GRAFANA_URL, value: "http://kps-grafana.monitoring.svc.cluster.local"}
             - {name: GITHUB_APP_PRIVATE_KEY_PATH, value: /etc/agent/github-app.pem}
             - name: OPERATOR_NAMESPACE

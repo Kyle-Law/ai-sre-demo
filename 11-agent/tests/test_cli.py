@@ -1,8 +1,5 @@
-"""CLI-level behaviour: timeline formatting and the single-instance guard."""
+"""CLI-level behaviour: timeline formatting, phase timing and the report."""
 
-import pytest
-
-from ai_sre_agent.__main__ import single_instance
 from ai_sre_agent.formatting import timeline_rows
 
 
@@ -12,14 +9,6 @@ def test_timeline_is_utc_whatever_offset_the_source_uses():
         "ticket_created_at": "2026-10-18T01:08:12.000+0800",   # Jira's format
     }))
     assert rows["Ticket created"] == "2026-10-17 17:08:12"
-
-
-def test_second_local_agent_is_refused(tmp_path):
-    first = single_instance(str(tmp_path / "state.db"))
-    with pytest.raises(SystemExit, match="Another agent is already running"):
-        single_instance(str(tmp_path / "state.db"))
-    first.close()
-    single_instance(str(tmp_path / "state.db")).close()      # free again once the first one exits
 
 
 VERIFIED_INCIDENT = {
@@ -47,8 +36,8 @@ def test_report_table_and_detail(tmp_path, monkeypatch, capsys):
     from ai_sre_agent import __main__ as cli
     rows = [dict(VERIFIED_INCIDENT, reasoning_steps=["probe on 8080", "app listens on 9898"],
                  investigation=[{"cmd": "kubectl get pods -n shop", "t": 2}])]
-    monkeypatch.setattr(cli, "open_store", lambda cfg: SimpleNamespace(all=lambda: rows))
-    cli.cmd_report(None, detail=True)
+    monkeypatch.setattr(cli, "open_store", lambda: SimpleNamespace(all=lambda: rows))
+    cli.cmd_report(detail=True)
     out = capsys.readouterr().out
     assert "SUP-3" in out and "fixed by agent PR" in out and "8m 13s" in out
     assert "Average MTTR 8m 13s = automated 2m 54s + human 5m 19s" in out

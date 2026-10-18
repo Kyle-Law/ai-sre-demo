@@ -7,9 +7,9 @@
 #   * ConfigMaps are readable only in the namespace the agent remediates (shop)
 #   * ArgoCD Applications readable only in the argocd namespace (to check sync)
 #
-# The kubeconfig handed to the agent is minted from this ServiceAccount by
-# 09-agent-access/generate-agent-kubeconfig.sh (short-lived, bound token).
-# 09-agent-access/verify-rbac.sh proves every allow / deny below.
+# The agent's pods run as this ServiceAccount (step 12). Its token is not mounted by
+# default; only the diagnosis Jobs opt in. 09-agent-access/verify-rbac.sh proves every
+# allow / deny below.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

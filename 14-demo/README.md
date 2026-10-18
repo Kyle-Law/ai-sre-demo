@@ -8,25 +8,24 @@ The stage script for showing the whole system end to end. Steps 01–13 must be 
 2. **Jira**: the INC board, filtered on `labels = ai-triage`
 3. **GitHub**: the repo's Pull requests tab
 4. **ArgoCD**: the `shop` application tree
-5. **Terminal A**: `make step-11` (the agent's live log)
+5. **Terminal A**: `kubectl -n ai-sre-agent logs deploy/agent-controller -f` (the agent's live log),
+   or `kubectl -n ai-sre-agent get agentsessions -w` (the incident board)
 6. **Terminal B**: repo checkout for `13-scenarios/demo.py`
 
 ## T-30 min
 
 ```bash
 make verify-14                                # preflight across every step, all OK
-make verify-11                                # agent selftest, all PASS
+make verify-12 ARGS=--selftest                # agent selftest from inside the cluster, all PASS
 python3 13-scenarios/demo.py status           # "Active scenario: none", no drift
 ```
-
-Confirm the agent kubeconfig token hasn't expired (the expiry is in the file header).
 
 ## 1. Set the scene (3 min)
 
 - One workload, `checkout`, deployed by ArgoCD from git. Everything is code: alert rules, RBAC, the app.
-- Show the agent's identity in Terminal B, using the agent kubeconfig:
+- Show the agent's identity in Terminal B (impersonating its ServiceAccount):
   ```bash
-  KUBECONFIG=agent.kubeconfig ./09-agent-access/verify-rbac.sh
+  ./09-agent-access/verify-rbac.sh
   ```
   Talking point: *"It can see everything it needs to diagnose, and nothing that lets it change the
   cluster. No Secrets, no exec. The final line is a real delete attempt the API server rejects."*
@@ -53,7 +52,8 @@ Show the commit in GitHub, then in ArgoCD as the new ReplicaSet appears.
 
 ## 4. The agent investigates (≈1–2 min)
 
-Terminal A shows each read-only call. Jira gets:
+Terminal A shows the controller starting a diagnosis Job (`kubectl -n ai-sre logs job/<diagnose-…>`
+shows each read-only call). Jira gets:
 1. **Picked up**: the ticket moves to In Progress.
 2. **Diagnosis**: root cause, the offending **commit sha and author**, evidence, an investigation
    log of every command it ran, and the proposed diff.
@@ -112,10 +112,10 @@ Close the old Jira ticket, and wait for the `shop` app to show Synced/Healthy.
 | Symptom | Quick fix |
 |---|---|
 | No ticket after 3 min | Grafana → Alert rules: is it Firing? `kubectl -n ai-sre logs deploy/alert-bridge` |
-| Ticket but agent silent | Check Terminal A. Usually an expired kubeconfig (`make step-09` re-mints it) or wrong `JIRA_PROJECT_KEY` |
+| Ticket but agent silent | Check Terminal A. Usually a wrong `JIRA_PROJECT_KEY`, or the diagnosis Job can't start (`kubectl -n ai-sre get jobs,pods`) |
 | PR merged but nothing syncs | ArgoCD → shop → Refresh (polls every 30s) |
 | Verification slow | Expected `VERIFY_STABLE_SECONDS` (90s). Lower to 45 for the stage |
-| Total failure | Narrate with `./11-agent/run.sh diagnose INC-x` (prints the diagnosis and PR without writing) |
+| Total failure | Narrate with `kubectl -n ai-sre-agent exec deploy/agent-controller -- ai-sre-agent diagnose INC-x` (prints the diagnosis and PR without writing) |
 
 ## Timing knobs
 

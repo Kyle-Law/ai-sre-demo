@@ -6,11 +6,11 @@ import pytest
 
 from ai_sre_agent.audit import AuditLog
 from ai_sre_agent.diagnose import Diagnoser
-from ai_sre_agent.state import ESCALATED, MERGED, PR_OPEN, RESOLVED, SYNCED, VERIFIED, StateStore
+from ai_sre_agent.state import ESCALATED, MERGED, PR_OPEN, RESOLVED, SYNCED, VERIFIED
 from ai_sre_agent.workflow import Agent
 
 from fakes import (BASE_DEPLOY, FakeAnthropic, FakeGitHub, FakeGrafana, FakeJira, FakeKube,
-                   good_submit)
+                   MemoryStore, good_submit)
 
 
 def make_cfg(tmp_path, **over):
@@ -19,7 +19,7 @@ def make_cfg(tmp_path, **over):
                 jira_transition_review="In Review", jira_transition_done="Done",
                 github_repo="org/repo", github_base_branch="main", github_reviewers=[],
                 verify_stable_seconds=0, verify_timeout_seconds=900, sync_timeout_seconds=600,
-                max_attempts=2, state_db=str(tmp_path / "s.db"), audit_log=str(tmp_path / "a.jsonl"))
+                max_attempts=2, audit_log=str(tmp_path / "a.jsonl"))
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -30,7 +30,7 @@ def make_agent(tmp_path, script, **cfg_over):
     jira, gh, kube, graf = FakeJira(), FakeGitHub(), FakeKube(), FakeGrafana()
     llm = FakeAnthropic(script)
     diag = Diagnoser(cfg, kube, graf, gh, audit, client=llm)
-    agent = Agent(cfg, jira, gh, kube, graf, diag, StateStore(cfg.state_db), audit)
+    agent = Agent(cfg, jira, gh, kube, graf, diag, MemoryStore(), audit)
     return agent, jira, gh, kube, graf, llm
 
 

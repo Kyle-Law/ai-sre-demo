@@ -14,7 +14,7 @@
 
 | Problem | Check |
 |---|---|
-| `selftest` fails on Kubernetes | Token expired: `make step-09` re-mints it. If the cluster was recreated, the API port changed, so regenerate it too. Is Docker Desktop running? |
+| `make verify-11` says Kubernetes is checked in the cluster | Expected: the agent's kubectl only runs in its pod. Use `make verify-12 ARGS=--selftest` |
 | `selftest` RBAC row FAILs | The `agent-access` ArgoCD app isn't synced, or `shop`/`argocd` namespaces were missing when it synced (steps 04 and 06 come first). Hit Refresh/Sync on `agent-access` |
 | Jira 400 on transition | The transition name differs. Check `audit.jsonl` for `jira_transition_unavailable` (lists available names) and set `JIRA_TRANSITION_*` |
 | Jira search 410/404 | Jira Cloud removed the old search API. The agent uses `/rest/api/3/search/jql`, so self-hosted Jira Data Center would need a change in `jira.py` |
@@ -22,8 +22,8 @@
 | GitHub 401 "could not be decoded" / JWT errors | Wrong `GITHUB_APP_ID` for the key, or the Mac clock is off |
 | GitHub 403 on PR | The App lacks Contents or Pull requests write (App settings → Permissions), or the installation wasn't updated after a permission change |
 | GitHub 422 "Reviews may only be requested from collaborators" | Fix `GITHUB_REVIEWERS` (non-fatal; logged) |
-| Agent re-opened a PR for an old ticket | The state DB was deleted. Tickets with an entry in `.agent/state.db` are never re-processed |
-| Want to replay a ticket | `sqlite3 .agent/state.db "delete from incidents where key='INC-3'"` |
+| Agent re-opened a PR for an old ticket | Its AgentSession was deleted. Tickets with an AgentSession are never re-processed |
+| Want to replay a ticket | `kubectl -n ai-sre-agent delete agentsession sup-3` |
 
 ## Scenarios
 
@@ -34,7 +34,7 @@
 | `demo-baseline not found` | Run `make baseline` once on a known-good main |
 | Push rejected | Branch protection with `enforce_admins=true`. The demo operator must be an admin, or inject via a PR |
 | 01 OOM doesn't trigger | The node has swap or a very old kernel. Check `kubectl -n shop describe pod`. The app loads ~96 MB at start, so the 64Mi limit must be hit |
-| 06 doesn't trigger | Needs the admin `kind-ai-sre` context. The agent's kubeconfig can't cordon, by design |
+| 06 doesn't trigger | Needs the admin `kind-ai-sre` context. The agent's ServiceAccount can't cordon, by design |
 
 ## Local cluster (kind)
 

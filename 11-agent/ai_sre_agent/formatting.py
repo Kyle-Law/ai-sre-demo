@@ -46,7 +46,7 @@ def pickup_comment(key: str, alerts: list[dict], attempt: int) -> str:
     retry = f" (attempt {attempt})" if attempt > 1 else ""
     return (f"(*) *AI SRE agent picked up this incident{retry}.*\n"
             f"Alerts: {names}\n"
-            "Investigating with a read-only kubeconfig, Prometheus metrics and git history. "
+            "Investigating with a read-only ServiceAccount, Prometheus metrics and git history. "
             "No changes will be made to the cluster.\n\n" + AGENT_SIG)
 
 

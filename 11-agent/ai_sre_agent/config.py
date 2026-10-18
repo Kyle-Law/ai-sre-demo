@@ -24,8 +24,7 @@ class Config:
     model: str
     max_turns: int
 
-    # Kubernetes (read-only kubeconfig)
-    kubeconfig: str
+    # Kubernetes: the pod's ServiceAccount (read-only RBAC, step 09)
     kubectl_bin: str
     argocd_namespace: str
 
@@ -64,9 +63,8 @@ class Config:
     sync_timeout_seconds: int = 600
     max_attempts: int = 2
 
-    # Storage / audit
-    state_db: str = ".agent/state.db"
-    audit_log: str = ".agent/audit.jsonl"
+    # Audit (state lives in AgentSession resources)
+    audit_log: str = "/tmp/ai-sre-agent/audit.jsonl"
 
     # Safety
     dry_run: bool = False
@@ -91,7 +89,6 @@ class Config:
             anthropic_api_key=_env("ANTHROPIC_API_KEY", required=True),
             model=_env("AGENT_MODEL", "claude-sonnet-5-5"),
             max_turns=int(_env("AGENT_MAX_TURNS", "30")),
-            kubeconfig=_env("KUBECONFIG", "agent.kubeconfig"),
             kubectl_bin=_env("KUBECTL_BIN", "kubectl"),
             argocd_namespace=_env("ARGOCD_NAMESPACE", "argocd"),
             grafana_url=_env("GRAFANA_URL", required=True).rstrip("/"),
@@ -121,7 +118,6 @@ class Config:
             verify_timeout_seconds=int(_env("VERIFY_TIMEOUT_SECONDS", "900")),
             sync_timeout_seconds=int(_env("SYNC_TIMEOUT_SECONDS", "600")),
             max_attempts=int(_env("MAX_ATTEMPTS", "2")),
-            state_db=_env("STATE_DB", ".agent/state.db"),
-            audit_log=_env("AUDIT_LOG", ".agent/audit.jsonl"),
+            audit_log=_env("AUDIT_LOG", "/tmp/ai-sre-agent/audit.jsonl"),
             dry_run=_bool("DRY_RUN", False),
         )

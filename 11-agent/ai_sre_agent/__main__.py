@@ -1,13 +1,12 @@
-"""CLI entry point.
+"""CLI entry point. The agent runs in the cluster (step 12); kubectl exec into the controller
+for the inspection commands.
 
-    python -m ai_sre_agent run              # main loop (11-agent/run.sh runs this)
-    python -m ai_sre_agent once             # a single poll cycle
-    python -m ai_sre_agent diagnose INC-1   # investigate one ticket, print findings, write nothing
-    python -m ai_sre_agent status           # incidents and their timelines
-    python -m ai_sre_agent report [--detail] # timing table across incidents (+ how each was found)
-    python -m ai_sre_agent selftest         # connectivity + proof the kubeconfig is read-only
-    python -m ai_sre_agent operator         # in-cluster controller: AgentSession per ticket (step 12)
-    python -m ai_sre_agent investigate      # in-cluster diagnosis Job: prints one Diagnosis (step 12)
+    ai-sre-agent operator          # the controller: AgentSession per ticket (the Deployment runs this)
+    ai-sre-agent investigate       # one diagnosis, run by the controller as a Job; prints the Diagnosis
+    ai-sre-agent diagnose INC-1    # investigate one ticket in a Job, print findings, write nothing
+    ai-sre-agent status            # incidents and their timelines
+    ai-sre-agent report [--detail] # timing table across incidents (+ how each was found)
+    ai-sre-agent selftest          # connectivity + RBAC matrix (outside the cluster: external services only)
 """
 
 from __future__ import annotations
@@ -26,29 +25,24 @@ from .diagnose import Diagnoser
 from .github import GitHub, auth_from_config
 from .grafana import Grafana
 from .jira import Jira
-from .kube import Kubectl
-from .state import StateStore
+from .incluster import CRStateStore, JobDiagnoser, operator_settings
+from .kube import Kubectl, in_cluster
 from .workflow import Agent
 
 log = logging.getLogger("ai_sre_agent")
 
 
-def build(cfg: Config, dry_run: bool | None = None, incluster: bool = False) -> Agent:
+def build(cfg: Config, dry_run: bool | None = None) -> Agent:
     dry = cfg.dry_run if dry_run is None else dry_run
     audit = AuditLog(cfg.audit_log)
-    kube = Kubectl(cfg.kubeconfig, cfg.kubectl_bin)
     grafana = Grafana(cfg.grafana_url, cfg.grafana_token, cfg.grafana_prom_uid)
     github = GitHub(cfg.github_api_url, auth_from_config(cfg), cfg.github_repo, cfg.github_base_branch, audit, dry)
     jira = Jira(cfg.jira_base_url, cfg.jira_email, cfg.jira_api_token, cfg.jira_project_key, audit, dry,
                 api_url=cfg.jira_api_url)
-    if incluster:
-        from .incluster import CRStateStore, JobDiagnoser, operator_settings
-        s = operator_settings()
-        diagnoser = JobDiagnoser(cfg, audit, s["job_namespace"], s["image"], s["service_account"])
-        state = CRStateStore(s["session_namespace"])
-    else:
-        diagnoser, state = Diagnoser(cfg, kube, grafana, github, audit), StateStore(cfg.state_db)
-    return Agent(cfg, jira, github, kube, grafana, diagnoser, state, audit)
+    s = operator_settings()
+    diagnoser = JobDiagnoser(cfg, audit, s["job_namespace"], s["image"], s["service_account"])
+    return Agent(cfg, jira, github, Kubectl(cfg.kubectl_bin), grafana, diagnoser,
+                 CRStateStore(s["session_namespace"]), audit)
 
 
 def cmd_investigate(cfg: Config) -> None:
@@ -57,30 +51,14 @@ def cmd_investigate(cfg: Config) -> None:
     from .incluster import RESULT_MARKER
     audit = AuditLog(cfg.audit_log)
     github = GitHub(cfg.github_api_url, "", cfg.github_repo, cfg.github_base_branch, audit, dry_run=True)
-    diagnoser = Diagnoser(cfg, Kubectl(cfg.kubeconfig, cfg.kubectl_bin),
+    diagnoser = Diagnoser(cfg, Kubectl(cfg.kubectl_bin),
                           Grafana(cfg.grafana_url, cfg.grafana_token, cfg.grafana_prom_uid), github, audit)
     diag = diagnoser.run(os.environ["AGENT_TICKET"], os.environ["AGENT_CONTEXT"])
     print(RESULT_MARKER + json.dumps(diag.__dict__, default=str), flush=True)
 
 
-def single_instance(state_db: str):
-    """Hold an exclusive lock next to the state DB: two local agents would race on it and act
-    on the same ticket twice (e.g. a DRY_RUN terminal left running next to the real one)."""
-    import fcntl
-    import os
-    path = os.path.join(os.path.dirname(os.path.abspath(state_db)), "agent.lock")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fh = open(path, "w")
-    try:
-        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise SystemExit(f"Another agent is already running with this state ({path}). Stop it first.")
-    return fh  # keep a reference: the lock lives as long as the file is open
-
-
-def cmd_run(cfg: Config, incluster: bool = False) -> None:
-    lock = None if incluster else single_instance(cfg.state_db)  # in-cluster: replicas: 1
-    agent = build(cfg, incluster=incluster)
+def cmd_operator(cfg: Config) -> None:
+    agent = build(cfg)  # one controller: the Deployment runs replicas: 1
     stop = {"flag": False}
 
     def _stop(signum, _frame):
@@ -92,7 +70,7 @@ def cmd_run(cfg: Config, incluster: bool = False) -> None:
     log.info("AI SRE agent started: project=%s repo=%s model=%s dry_run=%s",
              cfg.jira_project_key, cfg.github_repo, cfg.model, cfg.dry_run)
     agent.audit.write("agent_started", model=cfg.model, repo=cfg.github_repo, dry_run=cfg.dry_run)
-    log.info("watching Jira project %s for open tickets labelled '%s' every %ss (Ctrl-C to stop)",
+    log.info("watching Jira project %s for open tickets labelled '%s' every %ss",
              cfg.jira_project_key, cfg.jira_triage_label, cfg.poll_seconds)
     agent.recover()
     heartbeat_every = max(1, 300 // max(cfg.poll_seconds, 1))  # ~5 minutes
@@ -101,7 +79,7 @@ def cmd_run(cfg: Config, incluster: bool = False) -> None:
         agent.tick()
         ticks += 1
         if ticks % heartbeat_every == 0:
-            log.info("still watching (%d incident(s) in local state)", len(agent.state.all()))
+            log.info("still watching (%d AgentSession(s))", len(agent.state.all()))
         for _ in range(cfg.poll_seconds):
             if stop["flag"]:
                 break
@@ -121,13 +99,8 @@ def cmd_diagnose(cfg: Config, key: str) -> None:
         print("\n" + fmt.escalation_comment(diag))
 
 
-def open_store(cfg: Config):
-    """In the cluster (step 12) incidents live in AgentSessions; locally in the SQLite file."""
-    import os
-    if os.environ.get("OPERATOR_NAMESPACE"):
-        from .incluster import CRStateStore
-        return CRStateStore(os.environ["OPERATOR_NAMESPACE"])
-    return StateStore(cfg.state_db)
+def open_store() -> CRStateStore:
+    return CRStateStore(operator_settings()["session_namespace"])
 
 
 OUTCOME = {"VERIFIED": "fixed by agent PR", "RESOLVED": "fixed by human (escalated)",
@@ -140,8 +113,8 @@ def _ticket_number(row: dict) -> tuple:
     return (key.rsplit("-", 1)[0], int(key.rsplit("-", 1)[-1])) if key.rsplit("-", 1)[-1].isdigit() else (key, 0)
 
 
-def cmd_report(cfg: Config, detail: bool = False) -> None:
-    rows = sorted(open_store(cfg).all(), key=_ticket_number)
+def cmd_report(detail: bool = False) -> None:
+    rows = sorted(open_store().all(), key=_ticket_number)
     if not rows:
         print("No incidents handled yet.")
         return
@@ -185,9 +158,8 @@ def cmd_report(cfg: Config, detail: bool = False) -> None:
             print(f"  {label:34} {d(secs):>9}  {who}")
 
 
-def cmd_status(cfg: Config) -> None:
-    store = open_store(cfg)
-    rows = store.all()
+def cmd_status() -> None:
+    rows = open_store().all()
     if not rows:
         print("No incidents handled yet.")
     for r in rows:
@@ -198,7 +170,13 @@ def cmd_status(cfg: Config) -> None:
 
 
 def cmd_selftest(cfg: Config) -> int:
-    agent = build(cfg, dry_run=True)
+    audit = AuditLog(cfg.audit_log)
+    kube = Kubectl(cfg.kubectl_bin)
+    grafana = Grafana(cfg.grafana_url, cfg.grafana_token, cfg.grafana_prom_uid)
+    github = GitHub(cfg.github_api_url, auth_from_config(cfg), cfg.github_repo, cfg.github_base_branch,
+                    audit, dry_run=True)
+    jira = Jira(cfg.jira_base_url, cfg.jira_email, cfg.jira_api_token, cfg.jira_project_key, audit,
+                dry_run=True, api_url=cfg.jira_api_url)
     failures = 0
 
     def check(name: str, fn):
@@ -211,14 +189,18 @@ def cmd_selftest(cfg: Config) -> int:
             print(f"  FAIL  {name}: {exc}")
 
     print("Connectivity")
-    check("Kubernetes API (list pods in shop)", lambda: _expect_ok(agent.kube.run(["get", "pods", "-n", "shop"])))
-    check("Grafana / Prometheus query", lambda: str(agent.grafana.promql("up").get("status")))
-    check("Grafana alert state", lambda: f"{len(agent.grafana.active_alerts())} active")
-    check("Jira identity", lambda: agent.jira.check_identity(cfg.jira_sa_name))
+    check("Grafana / Prometheus query", lambda: str(grafana.promql("up").get("status")))
+    check("Grafana alert state", lambda: f"{len(grafana.active_alerts())} active")
+    check("Jira identity", lambda: jira.check_identity(cfg.jira_sa_name))
     # A wrong JIRA_BASE_URL can still answer searches with 0 results; the project lookup can't.
-    check("Jira project", lambda: f"{cfg.jira_project_key} ({agent.jira.get_project()['name']})")
-    check("Jira triage queue", lambda: f"{len(agent.jira.triage_queue(cfg.jira_triage_label))} open")
-    check("GitHub repo read", lambda: ", ".join(agent.github.list_dir(cfg.allowed_paths[0].rstrip("/"))[:5]))
+    check("Jira project", lambda: f"{cfg.jira_project_key} ({jira.get_project()['name']})")
+    check("Jira triage queue", lambda: f"{len(jira.triage_queue(cfg.jira_triage_label))} open")
+    check("GitHub repo read", lambda: ", ".join(github.list_dir(cfg.allowed_paths[0].rstrip("/"))[:5]))
+    if not in_cluster():
+        print("\nKubernetes: checked from inside the cluster (make verify-12 ARGS=--selftest)")
+        print(f"\n{'All checks passed.' if not failures else f'{failures} check(s) failed.'}")
+        return 1 if failures else 0
+    check("Kubernetes API (list pods in shop)", lambda: _expect_ok(kube.run(["get", "pods", "-n", "shop"])))
 
     print("\nRBAC (expect read allowed, everything else denied)")
     matrix = [
@@ -232,7 +214,7 @@ def cmd_selftest(cfg: Config) -> int:
     for (verb, resource), ns, expected in matrix:
         res, _, sub = resource.partition("/")
         args = ["auth", "can-i", verb, res, "-n", ns] + ([f"--subresource={sub}"] if sub else [])
-        code, out = agent.kube.run(args)
+        code, out = kube.run(args)
         allowed = out.strip().splitlines()[0].strip() == "yes" if out.strip() else False
         ok = allowed == expected
         failures += 0 if ok else 1
@@ -252,16 +234,14 @@ def _expect_ok(result: tuple[int, str]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ai-sre-agent")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("run")
-    sub.add_parser("once")
+    sub.add_parser("operator")
+    sub.add_parser("investigate")
     d = sub.add_parser("diagnose")
     d.add_argument("key")
     sub.add_parser("status")
     rp = sub.add_parser("report")
     rp.add_argument("--detail", action="store_true", help="also: how each incident was found, and phase timing")
     sub.add_parser("selftest")
-    sub.add_parser("operator")
-    sub.add_parser("investigate")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -272,22 +252,15 @@ def main() -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    if args.cmd in ("status", "report"):  # need only the state, not every secret
-        import os
-        cfg = Config(**{**_status_defaults(), "state_db": os.environ.get("STATE_DB", _status_defaults()["state_db"])})
-        cmd_status(cfg) if args.cmd == "status" else cmd_report(cfg, args.detail)
+    if args.cmd in ("status", "report"):  # need only the AgentSessions, not every secret
+        cmd_status() if args.cmd == "status" else cmd_report(args.detail)
         return
     cfg = Config.from_env()
     try:
-        if args.cmd == "run":
-            cmd_run(cfg)
-        elif args.cmd == "operator":
-            cmd_run(cfg, incluster=True)
+        if args.cmd == "operator":
+            cmd_operator(cfg)
         elif args.cmd == "investigate":
             cmd_investigate(cfg)
-        elif args.cmd == "once":
-            agent = build(cfg)
-            agent.tick()
         elif args.cmd == "diagnose":
             cmd_diagnose(cfg, args.key)
         elif args.cmd == "selftest":
@@ -296,16 +269,6 @@ def main() -> None:
         if args.verbose:
             raise
         sys.exit(f"error: {exc}")
-
-
-def _status_defaults() -> dict:
-    """status only needs the DB path; avoid requiring every secret."""
-    empty = dict.fromkeys([
-        "anthropic_api_key", "model", "kubeconfig", "kubectl_bin", "argocd_namespace", "grafana_url",
-        "grafana_token", "grafana_prom_uid", "jira_base_url", "jira_email", "jira_api_token",
-        "jira_project_key", "jira_triage_label", "jira_transition_start", "jira_transition_review",
-        "jira_transition_done", "github_token", "github_repo", "github_base_branch", "github_api_url"], "")
-    return {**empty, "max_turns": 0, "state_db": ".agent/state.db"}
 
 
 if __name__ == "__main__":

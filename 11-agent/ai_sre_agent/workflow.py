@@ -25,7 +25,7 @@ from .grafana import Grafana
 from .jira import Jira
 from .kube import Kubectl
 from .state import (DIAGNOSING, ESCALATED, FAILED, MERGED, PR_OPEN, RESOLVED, SYNCED, VERIFIED,
-                    StateStore, now_iso, parse_iso)
+                    now_iso, parse_iso)
 
 # How long the agent keeps checking an escalated incident for a human fix.
 ESCALATION_WATCH_SECONDS = 24 * 3600
@@ -41,7 +41,7 @@ def _seconds_since(ts: str | None) -> float:
 
 class Agent:
     def __init__(self, cfg, jira: Jira, github: GitHub, kube: Kubectl, grafana: Grafana,
-                 diagnoser: Diagnoser, state: StateStore, audit: AuditLog):
+                 diagnoser: Diagnoser, state, audit: AuditLog):  # state: incluster.CRStateStore
         self.cfg = cfg
         self.jira = jira
         self.github = github

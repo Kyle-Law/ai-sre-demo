@@ -1,7 +1,9 @@
 # 11 · The agent
 
-**Goal:** run the AI SRE agent. It picks up `ai-triage` tickets, investigates with its read-only
-eyes, proposes a fix as a PR, then follows that PR through review, merge, ArgoCD sync and recovery.
+**Goal:** understand and configure the AI SRE agent. It picks up `ai-triage` tickets, investigates
+with its read-only eyes, proposes a fix as a PR, then follows that PR through review, merge, ArgoCD
+sync and recovery. This step checks the code and your `agent.env` on your machine; step 12 runs it
+in the cluster, where its kubectl works as the read-only ServiceAccount from step 09.
 
 ## Concepts
 
@@ -22,16 +24,14 @@ eyes, proposes a fix as a PR, then follows that PR through review, merge, ArgoCD
   model's step-by-step account (`reasoning_steps`) next to the actual tool-call log, with when each
   call ran and what it returned, so the story can be checked against what really happened.
 - **Tool guard** ([ai_sre_agent/kube.py](ai_sre_agent/kube.py)): refuses non-read verbs, Secret
-  resources and flags like `--as`, `--kubeconfig` or `--token` before kubectl even runs. RBAC
+  resources and flags like `--as`, `--kubeconfig` or `--token` before kubectl even runs, and runs
+  kubectl only inside a pod (on a laptop it would pick up your admin `~/.kube/config`). RBAC
   (step 09) is the backstop.
 - **Change validation** ([ai_sre_agent/diagnose.py](ai_sre_agent/diagnose.py)): proposed files must be
   under `AGENT_ALLOWED_PATHS` (`06-demo-app/manifests/`), parse as YAML, contain no
   Secret/RBAC/ServiceAccount kinds and stay small. CI (step 10) enforces the same scope.
 - **Prompt-injection stance** ([ai_sre_agent/prompts.py](ai_sre_agent/prompts.py)): logs, events,
   commit messages and ticket text are treated as untrusted data, never as instructions.
-- **Isolation on a laptop**: [run.sh](run.sh) installs the agent into `.venv`, **unsets your
-  `KUBECONFIG`** so the agent only gets `agent.kubeconfig`, and keeps state and the audit log in
-  `.agent/`.
 
 ## Configure
 
@@ -52,19 +52,25 @@ cp 11-agent/.env.example agent.env && chmod 600 agent.env && $EDITOR agent.env
 ## Run
 
 ```bash
-make verify-11                 # selftest: every connection + RBAC matrix, all PASS
-DRY_RUN=true make step-11      # rehearse: investigates and prints Jira comments / PR, writes nothing
-make step-11                   # the real loop (Ctrl-C stops after the current cycle)
+make step-11                   # install into .venv, offline tests, check agent.env loads
+make verify-11                 # selftest from your machine: Grafana, Jira, GitHub, all PASS
 ```
+
+Kubernetes access and the RBAC matrix are checked from inside the cluster in step 12
+(`make verify-12 ARGS=--selftest`).
 
 ## Look around
 
 ```bash
-tail -f .agent/audit.jsonl | jq .            # every tool call, every external write
-make report                                  # timing table across incidents (ARGS=--detail: how each was found)
-./11-agent/run.sh status                     # incidents with their timelines
-./11-agent/run.sh diagnose <KEY>             # e.g. INC-1: investigate a real ticket, print only
 make test                                    # offline tests: agent lifecycle against fakes
+```
+
+Once step 12 is running:
+
+```bash
+make report                                  # timing table across incidents (ARGS=--detail: how each was found)
+kubectl -n ai-sre-agent exec deploy/agent-controller -- ai-sre-agent status          # timelines
+kubectl -n ai-sre-agent exec deploy/agent-controller -- ai-sre-agent diagnose <KEY>  # re-investigate, print only
 ```
 
 **Next:** [12 · Agent operator](../12-agent-operator/)

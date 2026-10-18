@@ -1,7 +1,7 @@
 # AI SRE Agent Demo: read-only diagnosis, human-gated GitOps remediation
 
-An AI agent gets paged by a real alert, investigates a Kubernetes cluster with a
-**read-only** kubeconfig, and proposes the fix as a **pull request**. A human
+An AI agent gets paged by a real alert, investigates a Kubernetes cluster as a
+**read-only** ServiceAccount, and proposes the fix as a **pull request**. A human
 reviews and merges; **ArgoCD** applies it; the agent **verifies** the incident is
 resolved. Every step lands on the **Jira** ticket, so the whole incident is
 auditable and MTTR is measured end to end.
@@ -15,7 +15,7 @@ flowchart LR
     P --> G[Grafana alert rule]
     G -->|webhook| B[alert-bridge]
     B -->|create / correlate| J[(Jira ticket<br/>label ai-triage)]
-    J -->|poll| AG[AI agent<br/>read-only kubeconfig]
+    J -->|poll| AG[AI agent in-cluster<br/>read-only ServiceAccount]
     AG -->|kubectl get/describe/logs<br/>PromQL, git history| A
     AG -->|open PR + incident record| GH[GitHub PR]
     GH -->|review + merge| H((Human))
@@ -38,10 +38,10 @@ flowchart LR
 | [06 · Demo app](06-demo-app/) | `checkout` + restricted AppProject *(Argo app)* | GitOps guardrails |
 | [07 · Alert rules](07-alert-rules/) | 5 Grafana rules as code *(Argo app)* | alerting as code, sidecar provisioning |
 | [08 · Jira integration](08-jira-integration/) | alert bridge, contact point, NetworkPolicy *(Argo app)* | webhooks, correlation, least privilege |
-| [09 · Agent access](09-agent-access/) | read-only RBAC + short-lived kubeconfig *(Argo app)* | RBAC, bound tokens, proving access |
+| [09 · Agent access](09-agent-access/) | read-only ServiceAccount + RBAC *(Argo app)* | RBAC, impersonation, proving access |
 | [10 · GitHub guardrails](10-github-guardrails/) | GitHub App identity, branch protection, CI scope guard | human-gated changes |
-| [11 · The agent](11-agent/) | the AI SRE agent loop, run locally | tool guards, change validation, verification |
-| [12 · Agent operator](12-agent-operator/) | the agent in-cluster: controller + a diagnosis Job per ticket *(Argo app)* | CRDs, admission policies, splitting read and write identities |
+| [11 · The agent](11-agent/) | the AI SRE agent's code, config and local checks | tool guards, change validation, verification |
+| [12 · Agent operator](12-agent-operator/) | runs the agent: controller + a diagnosis Job per ticket *(Argo app)* | CRDs, admission policies, splitting read and write identities |
 | [13 · Failure scenarios](13-scenarios/) | 6 realistic ways to break production | the full incident loop |
 | [14 · Demo runbook](14-demo/) | stage script + preflight | presenting it |
 
@@ -60,15 +60,15 @@ make down            # delete the cluster
 | CNI enforces the NetworkPolicy: only Grafana can reach the Jira bridge | [02](02-cni-cilium/), [08](08-jira-integration/manifests/networkpolicy.yaml) |
 | ArgoCD project for the demo app cannot create RBAC, Secrets or cluster objects | [06](06-demo-app/appproject.yaml) |
 | Agent's cluster identity can only `get/list/watch`; no Secrets, exec, port-forward, impersonation | [09](09-agent-access/manifests/rbac.yaml), proven by [verify-rbac.sh](09-agent-access/verify-rbac.sh) |
-| Short-lived bound ServiceAccount token (default 48h) | [09](09-agent-access/generate-agent-kubeconfig.sh) |
+| No kubeconfig to hand out: the agent's pods get a short-lived, auto-rotated ServiceAccount token | [09](09-agent-access/), [12](12-agent-operator/) |
 | Agent is a GitHub App on one repo with 1h tokens: opens PRs, never merges (branch protection + CODEOWNERS + required checks) | [10](10-github-guardrails/) |
 | CI fails agent PRs that touch anything outside `06-demo-app/manifests/` or `incidents/` | [10](.github/workflows/pr-checks.yaml) |
 | Agent refuses non-read kubectl verbs and Secret reads before calling the API | [11](11-agent/ai_sre_agent/kube.py) |
 | Proposed files are YAML-validated, size-limited and kind-checked before a PR exists | [11](11-agent/ai_sre_agent/diagnose.py) |
 | Logs, events and ticket text are treated as untrusted data (prompt-injection guard) | [11](11-agent/ai_sre_agent/prompts.py) |
-| In-cluster mode: the LLM runs in a Job with no write credentials; only the controller writes, after validating | [12](12-agent-operator/) |
+| The LLM runs in a Job with no write credentials; only the controller writes, after validating | [12](12-agent-operator/) |
 | An admission policy pins every Job in `ai-sre` to the read-only identity, image and Secret | [12](12-agent-operator/manifests/admission-policy.yaml) |
-| Every tool call and external write is recorded | `.agent/audit.jsonl` (local) or the controller/Job logs (in-cluster) |
+| Every tool call and external write is recorded | the controller and diagnosis Job logs |
 
 Details: [docs/SECURITY.md](docs/SECURITY.md). Problems: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
