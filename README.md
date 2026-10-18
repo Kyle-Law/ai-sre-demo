@@ -1,115 +1,72 @@
-# AI SRE Agent Demo: read-only diagnosis, human-gated GitOps remediation
+# AI SRE Agent Demo
 
-An AI agent gets paged by a real alert, investigates a Kubernetes cluster as a
-**read-only** ServiceAccount, and proposes the fix as a **pull request**. A human
-reviews and merges; **ArgoCD** applies it; the agent **verifies** the incident is
-resolved. Every step lands on the **Jira** ticket, so the whole incident is
-auditable and MTTR is measured end to end.
+An AI agent gets paged by a real alert, investigates Kubernetes with **read-only** access, and
+proposes the fix as a **pull request**. A human merges it, **ArgoCD** deploys it, and the agent
+**verifies** the fix and closes the **Jira** ticket with the MTTR. Everything runs locally on kind.
 
-The repo is a **step-by-step build**: each numbered folder adds one piece, explains the concepts,
-and has a `run.sh` and a `verify.sh`. Everything runs locally on a kind cluster.
+![Architecture](docs/architecture.png)
 
-```mermaid
-flowchart LR
-    A[checkout app<br/>namespace shop] -->|metrics| P[Prometheus]
-    P --> G[Grafana alert rule]
-    G -->|webhook| B[alert-bridge]
-    B -->|create / correlate| J[(Jira ticket<br/>label ai-triage)]
-    J -->|poll| AG[AI agent in-cluster<br/>read-only ServiceAccount]
-    AG -->|kubectl get/describe/logs<br/>PromQL, git history| A
-    AG -->|open PR + incident record| GH[GitHub PR]
-    GH -->|review + merge| H((Human))
-    H --> R[main branch]
-    R -->|sync| AR[ArgoCD]
-    AR -->|apply| A
-    AG -.->|verify: alert gone,<br/>replicas healthy, Argo synced| J
-```
+1. **App** breaks, through a realistic bad commit ([scenarios](13-scenarios/))
+2. **Grafana** alert fires
+3. **Jira** ticket is opened by the alert bridge
+4. **Agent** picks it up, investigates (kubectl, PromQL, git history) and posts the root cause
+5. **GitHub PR** with the fix, opened by the agent's GitHub App; a human reviews and merges
+6. **ArgoCD** syncs it; the agent checks the alert is gone, then closes the ticket
+
+The agent can't change the cluster itself: **read-only eyes, git-only hands.** Fixes that don't
+belong in git (e.g. a cordoned node) are escalated to a human, with no PR.
 
 ## Steps
 
-| Step | Adds | You learn |
-|---|---|---|
-| [00 · Prerequisites](00-prereqs/) | tools, accounts, `demo.env`, push to GitHub | how the steps fit together |
-| [01 · kind cluster](01-kind-cluster/) | single-node cluster, ports on localhost, **no CNI** | kind, NodePorts, what "NotReady" means |
-| [02 · CNI: Cilium](02-cni-cilium/) | pod network, NetworkPolicy enforcement, Hubble | CNI, eBPF datapath, flow visibility |
-| [03 · metrics-server](03-metrics-server/) | `kubectl top`, `metrics.k8s.io` | resource metrics API, API aggregation |
-| [04 · ArgoCD](04-argocd/) | GitOps engine, 30s git polling | Applications, AppProjects, drift |
-| [05 · Monitoring](05-monitoring/) | Prometheus + Grafana *(Argo app)* | multi-source Helm apps, kube-state-metrics |
-| [06 · Demo app](06-demo-app/) | `checkout` + restricted AppProject *(Argo app)* | GitOps guardrails |
-| [07 · Alert rules](07-alert-rules/) | 5 Grafana rules as code *(Argo app)* | alerting as code, sidecar provisioning |
-| [08 · Jira integration](08-jira-integration/) | alert bridge, contact point, NetworkPolicy *(Argo app)* | webhooks, correlation, least privilege |
-| [09 · Agent access](09-agent-access/) | read-only ServiceAccount + RBAC *(Argo app)* | RBAC, impersonation, proving access |
-| [10 · GitHub guardrails](10-github-guardrails/) | GitHub App identity, branch protection, CI scope guard | human-gated changes |
-| [11 · The agent](11-agent/) | the AI SRE agent's code, config and local checks | tool guards, change validation, verification |
-| [12 · Agent operator](12-agent-operator/) | runs the agent: controller + a diagnosis Job per ticket *(Argo app)* | CRDs, admission policies, splitting read and write identities |
-| [13 · Failure scenarios](13-scenarios/) | 6 realistic ways to break production | the full incident loop |
-| [14 · Demo runbook](14-demo/) | stage script + preflight | presenting it |
+Each folder is one learning step, with a README, `run.sh` and `verify.sh`.
 
-```bash
-make help            # list steps and targets
-make step-01         # run a step       (./01-kind-cluster/run.sh)
-make verify-01       # check a step     (./01-kind-cluster/verify.sh)
-make up              # steps 01-09 in one go (cluster + platform)
-make down            # delete the cluster
-```
-
-## What makes it safe
-
-| Control | Step |
+| Step | Adds |
 |---|---|
-| CNI enforces the NetworkPolicy: only Grafana can reach the Jira bridge | [02](02-cni-cilium/), [08](08-jira-integration/manifests/networkpolicy.yaml) |
-| ArgoCD project for the demo app cannot create RBAC, Secrets or cluster objects | [06](06-demo-app/appproject.yaml) |
-| Agent's cluster identity can only `get/list/watch`; no Secrets, exec, port-forward, impersonation | [09](09-agent-access/manifests/rbac.yaml), proven by [verify-rbac.sh](09-agent-access/verify-rbac.sh) |
-| No kubeconfig to hand out: the agent's pods get a short-lived, auto-rotated ServiceAccount token | [09](09-agent-access/), [12](12-agent-operator/) |
-| Agent is a GitHub App on one repo with 1h tokens: opens PRs, never merges (branch protection + CODEOWNERS + required checks) | [10](10-github-guardrails/) |
-| CI fails agent PRs that touch anything outside `06-demo-app/manifests/` or `incidents/` | [10](.github/workflows/pr-checks.yaml) |
-| Agent refuses non-read kubectl verbs and Secret reads before calling the API | [11](11-agent/ai_sre_agent/kube.py) |
-| Proposed files are YAML-validated, size-limited and kind-checked before a PR exists | [11](11-agent/ai_sre_agent/diagnose.py) |
-| Logs, events and ticket text are treated as untrusted data (prompt-injection guard) | [11](11-agent/ai_sre_agent/prompts.py) |
-| The LLM runs in a Job with no write credentials; only the controller writes, after validating | [12](12-agent-operator/) |
-| An admission policy pins every Job in `ai-sre` to the read-only identity, image and Secret | [12](12-agent-operator/manifests/admission-policy.yaml) |
-| Every tool call and external write is recorded | the controller and diagnosis Job logs |
+| [00](00-prereqs/) · [01](01-kind-cluster/) · [02](02-cni-cilium/) · [03](03-metrics-server/) | prerequisites, kind cluster, Cilium CNI, metrics-server |
+| [04](04-argocd/) · [05](05-monitoring/) · [06](06-demo-app/) | ArgoCD, Prometheus + Grafana, the `checkout` demo app |
+| [07](07-alert-rules/) · [08](08-jira-integration/) | Grafana alert rules as code, Grafana → Jira bridge |
+| [09](09-agent-access/) · [10](10-github-guardrails/) | read-only ServiceAccount + RBAC; GitHub App, branch protection, CI scope guard |
+| [11](11-agent/) · [12](12-agent-operator/) | the agent's code and config; runs it in-cluster: controller + one diagnosis Job per ticket |
+| [13](13-scenarios/) · [14](14-demo/) | six failure scenarios; demo runbook + preflight |
 
-Details: [docs/SECURITY.md](docs/SECURITY.md). Problems: [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
-
-## Scenarios
-
-| ID | What breaks (via a realistic git commit) | Alert | Agent outcome |
-|---|---|---|---|
-| `01-oomkilled` | Memory limit "rightsized" 256Mi → 64Mi | ContainerOOMKilled | PR restores limit |
-| `02-bad-image-tag` | Hotfix tag that doesn't exist | ContainerImagePullFailing | PR reverts tag |
-| `03-readiness-probe` | Readiness probe moved to wrong port | DeploymentRolloutStuck | PR fixes port |
-| `04-configmap-key` | ConfigMap key renamed, Deployment still uses old key | ContainerConfigError | PR restores key |
-| `05-cpu-request-typo` | `cpu: "50"` (50 cores) instead of 500m | PodUnschedulable | PR fixes request |
-| `06-node-cordoned` | Node cordoned **outside git** | PodUnschedulable | **Escalates, no PR** |
+## Quick start
 
 ```bash
-make inject SCENARIO=01-oomkilled
+make up                                 # steps 01-09: cluster, platform, Jira bridge, agent RBAC
+make step-10 && make step-11 && make step-12
+make inject SCENARIO=01-oomkilled       # break something, then watch Jira and GitHub
+make report                             # MTTR per incident, automated vs human time
 make reset
 ```
 
-More detail per scenario: [13-scenarios/README.md](13-scenarios/README.md).
+`make help` lists every target. Run `make verify-NN` after each step.
 
-## Repository layout
+## Scenarios
 
-```
-00-prereqs/ … 14-demo/   The steps (README.md, run.sh, verify.sh; manifests/ for ArgoCD apps)
-lib/common.sh            Helpers shared by the step scripts (demo.env, context guard, wait for Argo)
-incidents/               Incident records committed by agent PRs
-.github/                 CODEOWNERS, PR template, CI (validate-manifests, agent-scope-guard)
-docs/                    Security model, troubleshooting
-tests/                   Repo-level checks (layout, manifests, scenarios vs. alert rules)
-```
+| ID | What breaks | Agent outcome |
+|---|---|---|
+| `01-oomkilled` | memory limit "rightsized" 256Mi → 64Mi | PR restores the limit |
+| `02-bad-image-tag` | hotfix image tag that doesn't exist | PR reverts the tag |
+| `03-readiness-probe` | readiness probe on the wrong port | PR fixes the port |
+| `04-configmap-key` | ConfigMap key renamed, Deployment uses the old one | PR restores the key |
+| `05-cpu-request-typo` | `cpu: "50"` instead of `500m` | PR fixes the request |
+| `06-node-cordoned` | node cordoned outside git | **escalates, no PR** |
+
+## Guardrails
+
+- **Kubernetes:** the agent's ServiceAccount can only `get/list/watch`: no Secrets, exec or writes ([09](09-agent-access/manifests/rbac.yaml)). Its kubectl wrapper also refuses write verbs and Secret reads ([kube.py](11-agent/ai_sre_agent/kube.py)).
+- **Split identities:** the LLM runs in a Job with no write credentials, and an admission policy pins what that Job can be. Only the controller writes to Jira and GitHub, after validating the change ([12](12-agent-operator/)).
+- **Git:** the GitHub App can open PRs but never merge them. CI rejects agent PRs outside `06-demo-app/manifests/` and `incidents/` ([10](10-github-guardrails/)).
+- **Prompt injection:** logs, events and ticket text are treated as untrusted data ([prompts.py](11-agent/ai_sre_agent/prompts.py)).
+
+More: [docs/SECURITY.md](docs/SECURITY.md) · [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) ·
+[docs/related-projects.html](docs/related-projects.html)
 
 ## Tests
 
-All of this runs offline (no cluster or API keys needed):
-
 ```bash
-make test        # creates .venv with the agent + pytest on first run
+make test        # offline: no cluster or API keys needed
 ```
 
-They cover the kubectl guard, the full ticket → PR → merge → sync → verify lifecycle against
-fakes, GitHub App token handling, change validation, escalation and retry paths, the alert bridge
-against a fake Jira, every scenario's inject/reset round trip against a throwaway git remote, the
-step layout, and manifest checks.
+These cover the kubectl guard, the full ticket → PR → merge → sync → verify lifecycle against fakes,
+the alert bridge, every scenario's inject/reset round trip, and the manifests.

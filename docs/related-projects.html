@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Related Open Source</title>
+<meta name="description" content="Open-source projects relevant to the AI SRE demo, mapped to its steps, with what to borrow from each.">
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #ffffff; --text: #1c1917; --muted: #57534e; --border: #e7e5e4;
+    --accent: #2563eb; --accent-soft: #dbeafe; --good: #15803d; --good-soft: #dcfce7;
+    --warn: #b45309; --warn-soft: #fef3c7; --low: #78716c; --low-soft: #f5f5f4;
+    --code: #f5f5f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c0a09; --surface: #1c1917; --text: #f5f5f4; --muted: #a8a29e; --border: #292524;
+      --accent: #60a5fa; --accent-soft: #1e3a5f; --good: #4ade80; --good-soft: #14532d;
+      --warn: #fbbf24; --warn-soft: #451a03; --low: #a8a29e; --low-soft: #292524; --code: #292524;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c0a09; --surface: #1c1917; --text: #f5f5f4; --muted: #a8a29e; --border: #292524;
+    --accent: #60a5fa; --accent-soft: #1e3a5f; --good: #4ade80; --good-soft: #14532d;
+    --warn: #fbbf24; --warn-soft: #451a03; --low: #a8a29e; --low-soft: #292524; --code: #292524;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 40px 16px 80px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 8px; }
+  h2 { font-size: 1.35rem; margin: 48px 0 12px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 0 0 4px; }
+  p { margin: 0 0 12px; }
+  .lede { color: var(--muted); font-size: 1.05rem; max-width: 760px; }
+  a { color: var(--accent); }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: .88em; }
+  .note { background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 10px 14px;
+          border-radius: 6px; font-size: .92rem; margin: 16px 0; }
+
+  .picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 16px; }
+  .pick { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .pick .n { display: inline-block; width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
+             color: var(--bg); text-align: center; font-weight: 700; line-height: 26px; margin-bottom: 8px; }
+  .pick p { color: var(--muted); font-size: .94rem; margin: 0; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+  .filters button { font: inherit; font-size: .88rem; border: 1px solid var(--border); background: var(--surface);
+                    color: var(--text); padding: 5px 12px; border-radius: 999px; cursor: pointer; }
+  .filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+
+  .cards { display: grid; gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px;
+          display: grid; grid-template-columns: 220px 1fr; gap: 6px 20px; }
+  .card[hidden] { display: none; }
+  .card .meta { font-size: .85rem; color: var(--muted); }
+  .card .body p { font-size: .95rem; }
+  .card .body p:last-child { margin: 0; }
+  .label { font-weight: 600; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tag { font-size: .75rem; padding: 2px 8px; border-radius: 999px; background: var(--low-soft); color: var(--low); }
+  .rel { font-size: .75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; display: inline-block; margin-top: 6px; }
+  .rel.high { background: var(--good-soft); color: var(--good); }
+  .rel.med { background: var(--accent-soft); color: var(--accent); }
+  .rel.low { background: var(--low-soft); color: var(--low); }
+
+  .map { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border);
+         border-radius: 10px; overflow: hidden; font-size: .93rem; }
+  .map th, .map td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .map th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .map tr:last-child td { border-bottom: 0; }
+  .map td:first-child { white-space: nowrap; font-weight: 600; }
+
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .vs > div { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .vs ul { margin: 8px 0 0; padding-left: 20px; font-size: .94rem; }
+  .vs li { margin-bottom: 4px; }
+
+  ol.sources { font-size: .85rem; color: var(--muted); padding-left: 20px; columns: 2; column-gap: 32px; }
+  ol.sources li { break-inside: avoid; margin-bottom: 4px; }
+
+  @media (max-width: 720px) {
+    h1 { font-size: 1.6rem; }
+    .card { grid-template-columns: 1fr; }
+    .vs { grid-template-columns: 1fr; }
+    ol.sources { columns: 1; }
+    .map td:first-child { white-space: normal; }
+    .map-wrap { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Related open-source projects</h1>
+  <p class="lede">Which existing projects overlap with this repo (read-only AI diagnosis → Jira → GitHub PR → human
+    merge → ArgoCD → verify), what to borrow from each, and where this demo already goes further.
+    Researched October 2026.</p>
+  <div class="note">Most details come from project READMEs and docs, but some are from blogs and directory listings.
+    Check licences, CRD names and flags against each project's own docs before you depend on them.</div>
+
+  <h2>Where to start</h2>
+  <div class="picks">
+    <div class="pick"><span class="n">1</span><h3>Run HolmesGPT on the same scenarios</h3>
+      <p>It's the closest existing agent. Comparing diagnoses on scenarios 01–06 is the most honest test of
+        whether step 11's investigation adds anything.</p></div>
+    <div class="pick"><span class="n">2</span><h3>Give the investigator Job read-only MCP servers</h3>
+      <p>Use <code>mcp-grafana --disable-write</code> and <code>kubernetes-mcp-server --read-only</code> instead of
+        hand-written clients. Step 09 RBAC stays the real backstop.</p></div>
+    <div class="pick"><span class="n">3</span><h3>Read kagent's CRDs before growing step 12</h3>
+      <p>It has already worked out how to declare an agent, its model and its tools as Kubernetes resources,
+        the general version of <code>AgentSession</code>.</p></div>
+  </div>
+
+  <h2>What this repo does that the others don't advertise</h2>
+  <div class="vs">
+    <div>
+      <h3>Typical AI SRE tool</h3>
+      <ul>
+        <li>Investigates and explains; may suggest a fix</li>
+        <li>Fixes, if any, are patched straight into the cluster (K8sGPT auto-remediation) or left to a human</li>
+        <li>The story ends at "here is the root cause"</li>
+      </ul>
+    </div>
+    <div>
+      <h3>This demo</h3>
+      <ul>
+        <li>Fix goes through git as a PR, a human merges it, and ArgoCD applies it</li>
+        <li>The agent follows the PR through review, merge, sync and verification, then closes the ticket</li>
+        <li>MTTR split into automated vs human time, and an auditable "how it found it" log</li>
+        <li>LLM runs in a Job with no write credentials, pinned in place by an admission policy</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Map to the steps</h2>
+  <div class="map-wrap">
+  <table class="map">
+    <thead><tr><th>Step</th><th>Your component</th><th>Relevant projects</th></tr></thead>
+    <tbody>
+      <tr><td>07–08</td><td>Grafana rules, <code>bridge.py</code> → Jira</td><td>Keep, Robusta</td></tr>
+      <tr><td>09</td><td>Read-only ServiceAccount + RBAC</td><td>kubernetes-mcp-server <code>--read-only</code> (another layer, not a replacement)</td></tr>
+      <tr><td>11</td><td>Diagnosis loop, tool guard, change validation</td><td>HolmesGPT, K8sGPT checks, mcp-grafana, argocd-mcp, Langfuse</td></tr>
+      <tr><td>12</td><td>Controller, <code>AgentSession</code> CRD, Job per diagnosis</td><td>kagent, agent-sandbox, HolmesGPT operator mode</td></tr>
+      <tr><td>13</td><td>Git-commit failure scenarios</td><td>Chaos Mesh, LitmusChaos, krkn</td></tr>
+      <tr><td>Baseline</td><td>Why use an agent at all?</td><td>Argo Rollouts (auto-rollback without AI)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Projects</h2>
+  <div class="filters" role="group" aria-label="Filter by category">
+    <button type="button" data-f="all" aria-pressed="true">All</button>
+    <button type="button" data-f="agent" aria-pressed="false">AI SRE agents</button>
+    <button type="button" data-f="tools" aria-pressed="false">MCP tools</button>
+    <button type="button" data-f="alerts" aria-pressed="false">Alerting</button>
+    <button type="button" data-f="runtime" aria-pressed="false">Runtime</button>
+    <button type="button" data-f="chaos" aria-pressed="false">Chaos</button>
+    <button type="button" data-f="obs" aria-pressed="false">Observability</button>
+  </div>
+
+  <div class="cards">
+    <article class="card" data-c="agent">
+      <div class="meta"><h3><a href="https://github.com/HolmesGPT/holmesgpt">HolmesGPT</a></h3>
+        CNCF Sandbox · started at Robusta<br><span class="rel high">Closest overlap</span>
+        <div class="tags"><span class="tag">step 11</span><span class="tag">step 12</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> an open-source agent that investigates incidents. It has read-only toolsets
+          (Kubernetes, logs, Prometheus) declared in YAML, alert sources including Alertmanager, PagerDuty and Jira (with
+          findings written back), an in-cluster operator mode with scheduled health checks, and a GitHub integration that can open fix PRs.</p>
+        <p><span class="label">Borrow:</span> the toolset-as-config pattern, and use it as a benchmark for your diagnoses.
+          Its tool-calling loop isn't deterministic, and neither is yours: compare over several runs.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="agent runtime">
+      <div class="meta"><h3><a href="https://github.com/kagent-dev/kagent">kagent</a></h3>
+        CNCF Sandbox · Solo.io<br><span class="rel high">Closest to step 12</span>
+        <div class="tags"><span class="tag">step 12</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> a framework for running AI agents on Kubernetes. <code>Agent</code> (prompt + tools + model ref),
+          <code>ModelConfig</code> (provider, model, key Secret) and MCP tool servers are custom resources, run by a Go
+          controller, with a UI and a CLI. It ships MCP tools for Kubernetes, Helm, Argo, Prometheus, Grafana and Cilium.</p>
+        <p><span class="label">Borrow:</span> separating the agent definition from per-incident state. It's a framework, not an SRE agent,
+          so it would host your logic rather than replace it.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="agent">
+      <div class="meta"><h3><a href="https://k8sgpt.ai/auto-remediation">K8sGPT</a></h3>
+        CNCF<br><span class="rel med">Contrast case</span>
+        <div class="tags"><span class="tag">step 11</span><span class="tag">demo story</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> 50+ rule-based Kubernetes checks with an LLM explanation, as a CLI or an operator.
+          Its experimental auto-remediation records fixes as <code>Mutation</code> resources and patches the cluster directly.
+          GitOps support is on its <a href="https://k8sgpt.ai/roadmap">roadmap</a>.</p>
+        <p><span class="label">Borrow:</span> run its checks before the LLM, so Haiku starts from known findings and uses
+          fewer turns. In the demo, contrast direct patching with your PR-and-human-merge path.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="tools">
+      <div class="meta"><h3><a href="https://glama.ai/mcp/servers/@containers/kubernetes-mcp-server">kubernetes-mcp-server</a></h3>
+        containers/ · Red Hat<br><span class="rel med">Replace hand-rolled tool</span>
+        <div class="tags"><span class="tag">step 11</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> a Go MCP server that talks to the Kubernetes API directly. <code>--read-only</code> blocks all
+          create, update and delete; <code>--disable-destructive</code> blocks only update and delete.</p>
+        <p><span class="label">Watch out:</span> it doesn't do what <code>kube.py</code> does: refuse Secret reads and block
+          <code>--as</code> / <code>--token</code>. RBAC still has to stop Secret reads.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="tools">
+      <div class="meta"><h3><a href="https://grafana.com/docs/grafana/v13.2/developer-resources/mcp/configure/enable-and-disable-tools.md">mcp-grafana</a></h3>
+        Grafana Labs<br><span class="rel med">Replace hand-rolled tool</span>
+        <div class="tags"><span class="tag">step 11</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> the official Grafana MCP server with 40+ tools (dashboards, PromQL, alert state, incidents).
+          <code>--disable-write</code> switches off dashboard, folder, incident and alert-rule changes.</p>
+        <p><span class="label">Borrow:</span> replaces <code>grafana.py</code>; keep the Viewer-role token as the real limit.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="tools">
+      <div class="meta"><h3><a href="https://akuity.io/blog/argo-cd-mcp-server">argocd-mcp</a></h3>
+        Akuity · argoproj-labs<br><span class="rel med">Optional</span>
+        <div class="tags"><span class="tag">step 11</span><span class="tag">step 12</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> an MCP server for Argo CD: Application status, sync state, resource tree and logs.</p>
+        <p><span class="label">Watch out:</span> it also has tools to sync, create and delete Applications. Allow only the
+          read tools for the investigator; your controller's sync-revision check already works without it.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="alerts">
+      <div class="meta"><h3><a href="https://github.com/keephq/keep">Keep</a></h3>
+        keephq<br><span class="rel med">Replace step 08 bridge</span>
+        <div class="tags"><span class="tag">step 08</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> an open-source alert management and AIOps platform. It collects alerts from 100+ sources,
+          groups them into incidents with CEL rules or AI, and its YAML workflows can create and update Jira tickets.</p>
+        <p><span class="label">Borrow:</span> grouping and de-duplication well beyond the bridge's fingerprint matching.
+          It's heavier than <code>bridge.py</code>, so it fits a "production version" step rather than the core demo.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="alerts">
+      <div class="meta"><h3><a href="https://docs.robusta.dev/master/user-guide/alerts.html">Robusta</a></h3>
+        open-source engine (Robusta Classic)<br><span class="rel low">Background</span>
+        <div class="tags"><span class="tag">step 08</span><span class="tag">step 11</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> rule-based enrichment of Prometheus alerts with pod events, logs, graphs and related objects,
+          via an Alertmanager webhook and YAML playbooks.</p>
+        <p><span class="label">Borrow:</span> attach the obvious context to the ticket before the agent starts, so the LLM
+          skips its first few routine tool calls.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="runtime">
+      <div class="meta"><h3><a href="https://github.com/kubernetes-sigs/agent-sandbox">agent-sandbox</a></h3>
+        kubernetes-sigs · SIG Apps · v1alpha1<br><span class="rel med">Upstream direction</span>
+        <div class="tags"><span class="tag">step 12</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> a <code>Sandbox</code> resource and controller for isolated, stateful single-pod workloads, aimed at
+          agent runtimes and untrusted LLM-generated code. Pause/resume support; stronger isolation through gVisor or Kata is a goal.</p>
+        <p><span class="label">Borrow:</span> a future home for the diagnosis Job. Today's Job and admission policy are simpler
+          and enough, because the investigator runs no generated code.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="chaos">
+      <div class="meta"><h3><a href="https://chaos-mesh.org/">Chaos Mesh</a></h3>
+        CNCF<br><span class="rel med">More scenarios</span>
+        <div class="tags"><span class="tag">step 13</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> faults declared as custom resources: PodChaos, NetworkChaos (latency, loss, partition),
+          StressChaos, IOChaos, DNSChaos, HTTPChaos.</p>
+        <p><span class="label">Borrow:</span> failures no git commit can cause, which test the agent's <em>escalate</em> path
+          (like scenario 06) rather than its PR path.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="chaos">
+      <div class="meta"><h3><a href="https://github.com/krkn-chaos/krkn-hub">krkn</a> · <a href="https://litmuschaos.io/">LitmusChaos</a></h3>
+        CNCF<br><span class="rel low">Alternatives</span>
+        <div class="tags"><span class="tag">step 13</span></div></div>
+      <div class="body">
+        <p><span class="label">krkn</span> (Red Hat, CNCF Sandbox): pod, container, node and zone failures plus CPU, memory and I/O hogs,
+          with a pass/fail signal and a resiliency score from Prometheus.
+          <span class="label">LitmusChaos:</span> a web UI (ChaosCenter) and an experiment catalog (ChaosHub).</p>
+        <p>Chaos Mesh is the lightest of the three on a single-node kind cluster.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="obs">
+      <div class="meta"><h3><a href="https://langfuse.com/docs">Langfuse</a></h3>
+        self-hostable · accepts OpenTelemetry<br><span class="rel med">Agent tracing</span>
+        <div class="tags"><span class="tag">step 11</span><span class="tag">step 12</span></div></div>
+      <div class="body">
+        <p><span class="label">What it is:</span> open-source LLM tracing and evals. It records each diagnosis as a tree of model and tool
+          calls with tokens, cost and latency, and takes standard OTLP spans.</p>
+        <p><span class="label">Borrow:</span> turn <code>reasoning_steps</code> and the timed tool log into real traces, and compare
+          Haiku and Sonnet runs on the same scenario.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="agent">
+      <div class="meta"><h3><a href="https://github.com/GoogleCloudPlatform/kubectl-ai">kubectl-ai</a></h3>
+        Google Cloud<br><span class="rel low">Less relevant</span>
+        <div class="tags"><span class="tag">interactive</span></div></div>
+      <div class="body">
+        <p>An interactive assistant that turns a request into kubectl commands and runs them. It's built to act,
+          writes included, which is the opposite of the read-only-eyes principle here.</p>
+      </div>
+    </article>
+
+    <article class="card" data-c="runtime">
+      <div class="meta"><h3><a href="https://argoproj.github.io/rollouts/">Argo Rollouts</a></h3>
+        Argo project<br><span class="rel low">Honest baseline</span>
+        <div class="tags"><span class="tag">demo story</span></div></div>
+      <div class="body">
+        <p>Progressive delivery that rolls back automatically on failed metric analysis. It would stop scenarios 01–03 with no
+          ticket and no AI. Worth saying out loud in the demo: the agent earns its place on failures a rollback can't handle
+          and on the "why did this happen" write-up. (From general knowledge, not from this search.)</p>
+      </div>
+    </article>
+  </div>
+
+  <h2>Sources</h2>
+  <ol class="sources">
+    <li><a href="https://github.com/HolmesGPT/holmesgpt">HolmesGPT GitHub</a></li>
+    <li><a href="https://dev.co/devops/open-source/holmesgpt">dev.co: HolmesGPT</a></li>
+    <li><a href="https://www.aurorasre.ai/blog/open-source-ai-sre-aurora-vs-holmesgpt-vs-k8sgpt">Aurora: open-source AI SRE tools 2026</a></li>
+    <li><a href="https://www.aurorasre.ai/blog/holmesgpt-vs-k8sgpt">HolmesGPT vs K8sGPT</a></li>
+    <li><a href="https://www.incidentfox.ai/blog/best-open-source-ai-sre-tools.html">IncidentFox: open-source AI SRE tools</a></li>
+    <li><a href="https://cdn.jsdelivr.net/gh/kagent-dev/kagent@main/README.md">kagent README</a></li>
+    <li><a href="https://dev.to/hkhelil/kubernetes-as-your-ai-control-plane-running-claude-and-ollama-agents-with-kagent-1bmb">kagent with Claude (dev.to)</a></li>
+    <li><a href="https://www.shakudo.io/blog/deploy-ai-agents-on-kubernetes">kagent CNCF status (Shakudo)</a></li>
+    <li><a href="https://k8sgpt.ai/auto-remediation">K8sGPT auto-remediation</a></li>
+    <li><a href="https://k8sgpt.ai/roadmap">K8sGPT roadmap</a></li>
+    <li><a href="https://glama.ai/mcp/servers/@containers/kubernetes-mcp-server">kubernetes-mcp-server</a></li>
+    <li><a href="https://cloudnativenow.com/features/red-hat-readies-an-mcp-server-to-help-llms-manage-kubernetes/">Red Hat Kubernetes MCP server</a></li>
+    <li><a href="https://grafana.com/docs/grafana/v13.2/developer-resources/mcp/configure/enable-and-disable-tools.md">Grafana MCP: enable/disable tools</a></li>
+    <li><a href="https://akuity.io/blog/argo-cd-mcp-server">Akuity Argo CD MCP server</a></li>
+    <li><a href="https://glama.ai/mcp/servers/argoproj-labs/mcp-for-argocd">argoproj-labs mcp-for-argocd</a></li>
+    <li><a href="https://www.linuxlinks.com/keep-aiops-alert-management-platform/">Keep AIOps platform</a></li>
+    <li><a href="https://docs.robusta.dev/master/user-guide/alerts.html">Robusta alert enrichment</a></li>
+    <li><a href="https://kubernetes.io/blog/2026/03/20/running-agents-on-kubernetes-with-agent-sandbox">Agent Sandbox (Kubernetes blog)</a></li>
+    <li><a href="https://github.com/kubernetes-sigs/agent-sandbox">agent-sandbox GitHub</a></li>
+    <li><a href="https://reintech.io/blog/litmuschaos-vs-chaos-mesh-kubernetes-chaos-tool-comparison-2026">LitmusChaos vs Chaos Mesh 2026</a></li>
+    <li><a href="https://redhat.com/es/blog/krknchaos-joining-cncf-sandbox">krknChaos joins CNCF Sandbox</a></li>
+    <li><a href="https://developers.redhat.com/articles/2026/08/17/krkn-operator-developer-preview-red-hat-acm">Krkn operator developer preview</a></li>
+    <li><a href="https://langfuse.com/docs">Langfuse docs</a></li>
+    <li><a href="https://github.com/GoogleCloudPlatform/kubectl-ai">kubectl-ai GitHub</a></li>
+  </ol>
+</main>
+<script>
+  const buttons = document.querySelectorAll('.filters button');
+  const cards = document.querySelectorAll('.card');
+  buttons.forEach(b => b.addEventListener('click', () => {
+    buttons.forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+    const f = b.dataset.f;
+    cards.forEach(c => { c.hidden = f !== 'all' && !c.dataset.c.split(' ').includes(f); });
+  }));
+</script>
+</body>
+</html>
