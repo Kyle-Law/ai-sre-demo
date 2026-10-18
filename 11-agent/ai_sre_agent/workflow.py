@@ -24,8 +24,11 @@ from .github import GitHub
 from .grafana import Grafana
 from .jira import Jira
 from .kube import Kubectl
-from .state import (DIAGNOSING, ESCALATED, FAILED, MERGED, PR_OPEN, SYNCED, VERIFIED,
+from .state import (DIAGNOSING, ESCALATED, FAILED, MERGED, PR_OPEN, RESOLVED, SYNCED, VERIFIED,
                     StateStore, now_iso, parse_iso)
+
+# How long the agent keeps checking an escalated incident for a human fix.
+ESCALATION_WATCH_SECONDS = 24 * 3600
 
 log = logging.getLogger("ai_sre_agent")
 NEEDS_HUMAN = "needs-human"
@@ -50,7 +53,8 @@ class Agent:
 
     # ------------------------------------------------------------------ loop
     def tick(self) -> None:
-        for step in (self.poll_new_tickets, self.poll_open_prs, self.poll_merged, self.poll_synced):
+        for step in (self.poll_new_tickets, self.poll_open_prs, self.poll_merged, self.poll_synced,
+                     self.poll_escalated):
             try:
                 step()
             except Exception as exc:
@@ -105,7 +109,10 @@ class Agent:
             return
 
         self.state.update(key, diagnosed_at=now_iso(), diagnosis=diag.summary,
-                          root_cause=diag.root_cause, confidence=diag.confidence)
+                          root_cause=diag.root_cause, confidence=diag.confidence,
+                          reasoning_steps=diag.reasoning_steps, model=diag.model, turns=diag.turns,
+                          investigation=[{"cmd": fmt.command(c), "t": c.get("t"), "error": c.get("error", False)}
+                                         for c in diag.investigation])
         self.jira.comment(key, fmt.findings_comment(diag))
 
         if diag.action == "pull_request" and diag.changes:
@@ -159,6 +166,34 @@ class Agent:
         self.jira.add_labels(key, [NEEDS_HUMAN])
         self.state.update(key, stage=ESCALATED, escalated_at=now_iso(), escalation_reason=reason or
                           (diag.escalation_reason if diag else ""))
+
+    def poll_escalated(self) -> None:
+        """An escalated incident is a human's job, but the agent still notices when it's fixed:
+        once alert, pods and ArgoCD stay healthy for the stability window, it records the
+        resolution with its timing and closes the ticket - unless a human already closed it."""
+        for st in self.state.in_stage(ESCALATED):
+            key = st["key"]
+            if _seconds_since(st.get("escalated_at")) > ESCALATION_WATCH_SECONDS:
+                continue
+            ok, checks, _ = self.verify(st)
+            if not ok:
+                if st.get("first_clear_at"):
+                    self.state.update(key, first_clear_at=None)
+                continue
+            if not st.get("first_clear_at"):
+                self.state.update(key, first_clear_at=now_iso())
+                continue
+            if _seconds_since(st["first_clear_at"]) < self.cfg.verify_stable_seconds:
+                continue
+            status = self.jira.get_issue(key).get("fields", {}).get("status", {})
+            closed = status.get("statusCategory", {}).get("key") == "done"
+            st = self.state.update(key, stage=RESOLVED, resolved_at=now_iso(),
+                                   resolved_by="human (ticket already closed)" if closed else "human")
+            self.audit.write("resolved_after_escalation", ticket=key, ticket_already_closed=closed, checks=checks)
+            if not closed:
+                checks.append(f"Stable for {self.cfg.verify_stable_seconds}s")
+                self.jira.comment(key, fmt.resolved_after_escalation_comment(st, checks))
+                self.jira.transition(key, self.cfg.jira_transition_done)
 
     # --------------------------------------------------------------- PR watch
     def poll_open_prs(self) -> None:

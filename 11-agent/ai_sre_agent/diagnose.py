@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import json
 import posixpath
+import time
 from dataclasses import dataclass, field
 
 import yaml
@@ -106,8 +107,13 @@ TOOLS = [
                 "escalation_reason": {"type": "string"},
                 "next_steps": {"type": "array", "items": {"type": "string"}},
                 "offending_commit": {"type": "string", "description": "sha of the commit that introduced the problem, if any"},
+                "reasoning_steps": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": ("How you found the root cause, in the order you did it. One item per step: what you "
+                                    "checked, what it showed, what that told you. End with the conclusion. 3-8 items."),
+                },
             },
-            "required": ["summary", "root_cause", "evidence", "confidence", "action"],
+            "required": ["summary", "root_cause", "evidence", "confidence", "action", "reasoning_steps"],
         },
     },
 ]
@@ -128,7 +134,8 @@ class Diagnosis:
     escalation_reason: str = ""
     next_steps: list[str] = field(default_factory=list)
     offending_commit: str = ""
-    investigation: list[dict] = field(default_factory=list)  # tool calls made
+    reasoning_steps: list[str] = field(default_factory=list)  # the model's account of how it got there
+    investigation: list[dict] = field(default_factory=list)  # tool calls actually made: tool, input, t, result
     model: str = ""
     turns: int = 0
     input_tokens: int = 0
@@ -233,6 +240,7 @@ class Diagnoser:
                                       allowed_paths=", ".join(self.cfg.allowed_paths))
         messages: list[dict] = [{"role": "user", "content": context}]
         investigation: list[dict] = []
+        started = time.monotonic()
         usage_in = usage_out = cache_read = cache_write = 0
         max_turns = self.cfg.max_turns
 
@@ -277,7 +285,9 @@ class Diagnoser:
                     results.append({"type": "tool_result", "tool_use_id": tu.id, "content": error, "is_error": True})
                     continue
                 output, is_error = self.dispatch(ticket, tu.name, dict(tu.input))
-                investigation.append({"tool": tu.name, "input": dict(tu.input), "error": is_error})
+                investigation.append({"tool": tu.name, "input": dict(tu.input), "error": is_error,
+                                      "t": round(time.monotonic() - started),   # seconds into the diagnosis
+                                      "result": " ".join(output.split())[:160]})  # what it showed, abridged
                 self.audit.write("tool_call", ticket=ticket, tool=tu.name, input=dict(tu.input),
                                  is_error=is_error, output=output[:4000])
                 results.append({"type": "tool_result", "tool_use_id": tu.id, "content": output, "is_error": is_error})
@@ -321,6 +331,7 @@ class Diagnoser:
             escalation_reason=data.get("escalation_reason", ""),
             next_steps=list(data.get("next_steps", [])),
             offending_commit=data.get("offending_commit", ""),
+            reasoning_steps=[str(s) for s in data.get("reasoning_steps", [])],
             investigation=investigation,
         )
         self.audit.write("diagnosis", ticket=ticket, **{k: v for k, v in diag.to_dict().items() if k != "investigation"})

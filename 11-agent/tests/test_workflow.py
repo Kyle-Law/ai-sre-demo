@@ -6,7 +6,7 @@ import pytest
 
 from ai_sre_agent.audit import AuditLog
 from ai_sre_agent.diagnose import Diagnoser
-from ai_sre_agent.state import ESCALATED, MERGED, PR_OPEN, SYNCED, VERIFIED, StateStore
+from ai_sre_agent.state import ESCALATED, MERGED, PR_OPEN, RESOLVED, SYNCED, VERIFIED, StateStore
 from ai_sre_agent.workflow import Agent
 
 from fakes import (BASE_DEPLOY, FakeAnthropic, FakeGitHub, FakeGrafana, FakeJira, FakeKube,
@@ -159,3 +159,50 @@ def test_model_usage_is_audited(tmp_path):
     import json
     usage = [json.loads(l) for l in open(tmp_path / "a.jsonl") if '"model_usage"' in l]
     assert usage and usage[0]["model"] == "test-model" and usage[0]["output_tokens"] == 400 and usage[0]["turns"] == 2
+
+
+ESCALATE = [[("submit_diagnosis", {
+    "summary": "Node is cordoned", "root_cause": "node spec.unschedulable=true",
+    "evidence": ["kubectl get nodes shows SchedulingDisabled"], "confidence": "high",
+    "action": "escalate", "escalation_reason": "Not fixable in git", "next_steps": ["kubectl uncordon <node>"],
+    "reasoning_steps": ["Pods Pending", "Scheduler says node unschedulable", "Node is cordoned: not a git change"]})]]
+
+
+def test_escalated_incident_is_closed_once_a_human_fixes_it(tmp_path):
+    agent, jira, gh, kube, graf, _ = make_agent(tmp_path, ESCALATE)
+    agent.tick()
+    assert agent.state.get("INC-1")["stage"] == ESCALATED
+    agent.tick()                                     # still broken: nothing happens
+    assert agent.state.get("INC-1")["stage"] == ESCALATED
+    kube.healthy, graf.firing = True, False          # a human uncordons the node
+    agent.tick()                                     # first healthy check starts the stability window
+    agent.tick()
+    st = agent.state.get("INC-1")
+    assert st["stage"] == RESOLVED and st["resolved_by"] == "human"
+    assert "Resolved after human action" in jira.comments["INC-1"][-1]
+    assert "Where the time went" in jira.comments["INC-1"][-1]
+    assert jira.transitions[-1] == ("INC-1", "Done")
+    assert not gh.opened
+
+
+def test_escalated_ticket_closed_by_a_human_is_left_alone(tmp_path):
+    agent, jira, gh, kube, graf, _ = make_agent(tmp_path, ESCALATE)
+    agent.tick()
+    jira.closed.add("INC-1")
+    kube.healthy, graf.firing = True, False
+    before = len(jira.comments["INC-1"])
+    agent.tick(); agent.tick()
+    assert agent.state.get("INC-1")["stage"] == RESOLVED
+    assert len(jira.comments["INC-1"]) == before and ("INC-1", "Done") not in jira.transitions
+
+
+def test_findings_show_how_it_was_found_with_timed_calls(tmp_path):
+    submit = good_submit()
+    submit[1]["reasoning_steps"] = ["New pods OOMKilled", "Commit abc123 cut the limit to 64Mi", "Restore 256Mi"]
+    agent, jira, *_ = make_agent(tmp_path, [[("kubectl", {"args": ["get", "pods", "-n", "shop"]})], [submit]])
+    agent.tick()
+    findings = next(c for c in jira.comments["INC-1"] if "h3. (i) Diagnosis" in c)
+    assert "*How the agent found it:*\n# New pods OOMKilled\n# Commit abc123" in findings
+    assert "+  0s  kubectl get pods -n shop" in findings and "\n        -> " in findings
+    st = agent.state.get("INC-1")
+    assert st["reasoning_steps"][0] == "New pods OOMKilled" and st["investigation"][0]["cmd"] == "kubectl get pods -n shop"

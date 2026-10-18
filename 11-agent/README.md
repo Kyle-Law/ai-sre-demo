@@ -13,8 +13,14 @@ eyes, proposes a fix as a PR, then follows that PR through review, merge, ArgoCD
   4. open a PR (fix + `incidents/<KEY>.md`), mirror PR reviews to Jira, wait for the merge
   5. wait for ArgoCD to sync the merge commit, then verify the alert is gone and the replicas are
      healthy for `VERIFY_STABLE_SECONDS`
-  6. post a timeline and MTTR, and close the ticket. If the fix didn't work: one more attempt, then
-     `needs-human`. A PR a human closed is never retried.
+  6. post where the time went (each phase, who it waited on, MTTR split into automated and human
+     time) and close the ticket. If the fix didn't work: one more attempt, then `needs-human`.
+     A PR a human closed is never retried.
+  7. escalated incidents (no git fix) stay watched for 24h: once a human's fix holds, the agent
+     posts "Resolved after human action" with the same timing and closes the ticket.
+- **How it found the cause**: the findings comment, the PR and `incidents/<KEY>.md` show the
+  model's step-by-step account (`reasoning_steps`) next to the actual tool-call log, with when each
+  call ran and what it returned, so the story can be checked against what really happened.
 - **Tool guard** ([ai_sre_agent/kube.py](ai_sre_agent/kube.py)): refuses non-read verbs, Secret
   resources and flags like `--as`, `--kubeconfig` or `--token` before kubectl even runs. RBAC
   (step 09) is the backstop.
@@ -55,7 +61,8 @@ make step-11                   # the real loop (Ctrl-C stops after the current c
 
 ```bash
 tail -f .agent/audit.jsonl | jq .            # every tool call, every external write
-./11-agent/run.sh status                     # incidents in the local state DB, with timelines
+make report                                  # timing table across incidents (ARGS=--detail: how each was found)
+./11-agent/run.sh status                     # incidents with their timelines
 ./11-agent/run.sh diagnose <KEY>             # e.g. INC-1: investigate a real ticket, print only
 make test                                    # offline tests: agent lifecycle against fakes
 ```

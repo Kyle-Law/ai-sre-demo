@@ -37,6 +37,7 @@ class FakeJira:
         self.labels: dict[str, list[str]] = {}
         self.transitions: list[tuple[str, str]] = []
         self.queue = [{"key": "INC-1"}]
+        self.closed: set[str] = set()   # tickets a human has already moved to a done status
 
     def browse_url(self, key):
         return f"https://jira.example/browse/{key}"
@@ -48,6 +49,7 @@ class FakeJira:
         desc = ("h3. alert\nALERT_JSON_BEGIN\n{code:json}\n" + json.dumps(ALERT) + "\n{code}\nALERT_JSON_END")
         return {"key": key, "fields": {"summary": "[CRITICAL] ContainerOOMKilled: shop/checkout",
                                        "description": desc, "created": "2026-10-17T06:00:20.000+0000",
+                                       "status": {"statusCategory": {"key": "done" if key in self.closed else "indeterminate"}},
                                        "comment": {"comments": []}}}
 
     extract_alerts = staticmethod(__import__("ai_sre_agent.jira", fromlist=["Jira"]).Jira.extract_alerts)

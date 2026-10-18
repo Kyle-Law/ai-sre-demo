@@ -3,7 +3,8 @@
     python -m ai_sre_agent run              # main loop (11-agent/run.sh runs this)
     python -m ai_sre_agent once             # a single poll cycle
     python -m ai_sre_agent diagnose INC-1   # investigate one ticket, print findings, write nothing
-    python -m ai_sre_agent status           # incidents in the local state DB
+    python -m ai_sre_agent status           # incidents and their timelines
+    python -m ai_sre_agent report [--detail] # timing table across incidents (+ how each was found)
     python -m ai_sre_agent selftest         # connectivity + proof the kubeconfig is read-only
     python -m ai_sre_agent operator         # in-cluster controller: AgentSession per ticket (step 12)
     python -m ai_sre_agent investigate      # in-cluster diagnosis Job: prints one Diagnosis (step 12)
@@ -120,8 +121,72 @@ def cmd_diagnose(cfg: Config, key: str) -> None:
         print("\n" + fmt.escalation_comment(diag))
 
 
+def open_store(cfg: Config):
+    """In the cluster (step 12) incidents live in AgentSessions; locally in the SQLite file."""
+    import os
+    if os.environ.get("OPERATOR_NAMESPACE"):
+        from .incluster import CRStateStore
+        return CRStateStore(os.environ["OPERATOR_NAMESPACE"])
+    return StateStore(cfg.state_db)
+
+
+OUTCOME = {"VERIFIED": "fixed by agent PR", "RESOLVED": "fixed by human (escalated)",
+           "ESCALATED": "escalated, open", "PR_OPEN": "PR awaiting review", "MERGED": "merged, syncing",
+           "SYNCED": "verifying", "DIAGNOSING": "diagnosing", "FAILED": "agent error"}
+
+
+def _ticket_number(row: dict) -> tuple:
+    key = row.get("key", "")
+    return (key.rsplit("-", 1)[0], int(key.rsplit("-", 1)[-1])) if key.rsplit("-", 1)[-1].isdigit() else (key, 0)
+
+
+def cmd_report(cfg: Config, detail: bool = False) -> None:
+    rows = sorted(open_store(cfg).all(), key=_ticket_number)
+    if not rows:
+        print("No incidents handled yet.")
+        return
+    d = fmt._dur
+    header = (f"{'Ticket':8} {'Alert':26} {'Outcome':27} {'Alert->PR/esc':>13} {'Review':>9} "
+              f"{'Merge->ok':>9} {'MTTR':>9} {'Automated':>9} {'Human':>9}")
+    print(header + "\n" + "-" * len(header))
+    done = []
+    for r in rows:
+        start = r.get("detected_at") or r.get("ticket_created_at")
+        t = fmt.timing_totals(r)
+        alert = ",".join(r.get("alertnames") or []) or "-"
+        print(f"{r['key']:8} {alert[:26]:26} {OUTCOME.get(r.get('stage'), r.get('stage', '?')):27} "
+              f"{d(fmt._seconds(start, r.get('pr_opened_at') or r.get('escalated_at'))):>13} "
+              f"{d(fmt._seconds(r.get('pr_opened_at'), r.get('merged_at'))):>9} "
+              f"{d(fmt._seconds(r.get('merged_at'), r.get('verified_at'))):>9} "
+              f"{d(t['mttr']):>9} {d(t['automated'] if t['mttr'] is not None else None):>9} "
+              f"{d(t['human'] if t['mttr'] is not None else None):>9}")
+        if t["mttr"] is not None:
+            done.append(t)
+    if done:
+        avg = lambda k: sum(x[k] for x in done) // len(done)
+        print(f"\nResolved: {len(done)} of {len(rows)}. Average MTTR {d(avg('mttr'))} "
+              f"= automated {d(avg('automated'))} + human {d(avg('human'))}.")
+    if not detail:
+        return
+    for r in rows:
+        print(f"\n=== {r['key']}  {OUTCOME.get(r.get('stage'), r.get('stage'))}  "
+              f"({r.get('namespace')}/{r.get('workload')}, model {r.get('model', '-')})")
+        if r.get("diagnosis"):
+            print(f"Diagnosis: {r['diagnosis']}")
+        if r.get("reasoning_steps"):
+            print("How the agent found it:")
+            for i, s in enumerate(r["reasoning_steps"], 1):
+                print(f"  {i}. {s}")
+        if r.get("investigation"):
+            print("Investigation (seconds into diagnosis):")
+            print("  " + fmt.investigation_lines(r["investigation"], with_results=False).replace("\n", "\n  "))
+        print("Where the time went:")
+        for label, secs, who in fmt.phase_rows(r):
+            print(f"  {label:34} {d(secs):>9}  {who}")
+
+
 def cmd_status(cfg: Config) -> None:
-    store = StateStore(cfg.state_db)
+    store = open_store(cfg)
     rows = store.all()
     if not rows:
         print("No incidents handled yet.")
@@ -192,6 +257,8 @@ def main() -> None:
     d = sub.add_parser("diagnose")
     d.add_argument("key")
     sub.add_parser("status")
+    rp = sub.add_parser("report")
+    rp.add_argument("--detail", action="store_true", help="also: how each incident was found, and phase timing")
     sub.add_parser("selftest")
     sub.add_parser("operator")
     sub.add_parser("investigate")
@@ -205,9 +272,10 @@ def main() -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    if args.cmd == "status":
+    if args.cmd in ("status", "report"):  # need only the state, not every secret
         import os
-        cmd_status(Config(**{**_status_defaults(), "state_db": os.environ.get("STATE_DB", _status_defaults()["state_db"])}))
+        cfg = Config(**{**_status_defaults(), "state_db": os.environ.get("STATE_DB", _status_defaults()["state_db"])})
+        cmd_status(cfg) if args.cmd == "status" else cmd_report(cfg, args.detail)
         return
     cfg = Config.from_env()
     try:

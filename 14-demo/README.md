@@ -95,7 +95,8 @@ The agent finds the node is cordoned, explains that this isn't fixable in git, l
 
 ## 8. Close (2 min)
 
-Show the audit log (`tail -n 20 .agent/audit.jsonl | jq .`), then recap the
+Show `make report` (every incident's phases, MTTR, automated vs human time; `ARGS=--detail` adds how
+each was found), then recap the
 trust boundary: **read-only eyes, git-only hands, human-gated merge, Argo applies, agent verifies.**
 
 ## Between runs

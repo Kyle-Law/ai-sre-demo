@@ -39,7 +39,12 @@ inject: ## Break something: make inject SCENARIO=01-oomkilled
 	@test -n "$(SCENARIO)" || (echo "usage: make inject SCENARIO=01-oomkilled" && exit 1)
 	python3 13-scenarios/demo.py inject $(SCENARIO)
 
+report: ## Incident timing table (ARGS=--detail: how each was found + phase timing)
+	@if kubectl -n ai-sre-agent get deploy agent-controller >/dev/null 2>&1; then \
+	  kubectl -n ai-sre-agent exec deploy/agent-controller -- ai-sre-agent report $(ARGS); \
+	else ./11-agent/run.sh report $(ARGS); fi
+
 reset: ## Restore the demo app to demo-baseline (and uncordon nodes)
 	python3 13-scenarios/demo.py reset --uncordon
 
-.PHONY: help up down test baseline scenarios inject reset
+.PHONY: help up down test baseline scenarios inject reset report

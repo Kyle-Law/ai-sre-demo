@@ -11,7 +11,7 @@ from .state import parse_iso
 AGENT_SIG = "_— AI SRE agent (read-only cluster access; changes only via human-approved PRs)_"
 
 
-def _cmd(call: dict) -> str:
+def command(call: dict) -> str:
     tool, inp = call["tool"], call["input"]
     if tool == "kubectl":
         return "kubectl " + " ".join(inp.get("args", []))
@@ -19,6 +19,26 @@ def _cmd(call: dict) -> str:
         rng = f" [range {inp['range_minutes']}m]" if inp.get("range_minutes") else ""
         return f"promql: {inp.get('query')}{rng}"
     return f"{tool} {json.dumps(inp)}"
+
+
+_cmd = command
+
+
+def investigation_lines(investigation: list[dict], with_results: bool = True) -> str:
+    """One line per tool call actually made: when (seconds into the diagnosis), what, what it showed."""
+    lines = []
+    for c in investigation:
+        when = f"+{c['t']:>3}s  " if c.get("t") is not None else ""
+        cmd = c.get("cmd") or command(c)
+        line = f"{when}{cmd}" + ("   <- error" if c.get("error") else "")
+        if with_results and c.get("result"):
+            line += f"\n        -> {c['result']}"
+        lines.append(line)
+    return "\n".join(lines) or "(no tool calls)"
+
+
+def steps_list(steps: list[str], bullet: str = "#") -> str:
+    return "\n".join(f"{bullet} {s}" for s in steps)
 
 
 def pickup_comment(key: str, alerts: list[dict], attempt: int) -> str:
@@ -32,7 +52,6 @@ def pickup_comment(key: str, alerts: list[dict], attempt: int) -> str:
 
 def findings_comment(d: Diagnosis) -> str:
     evidence = "\n".join(f"# {e}" for e in d.evidence) or "# (none recorded)"
-    commands = "\n".join(_cmd(c) + ("   <- error" if c.get("error") else "") for c in d.investigation)
     lines = [
         "h3. (i) Diagnosis",
         f"*Summary:* {d.summary}",
@@ -41,10 +60,13 @@ def findings_comment(d: Diagnosis) -> str:
     ]
     if d.offending_commit:
         lines.append(f"*Introduced by commit:* {{{{{d.offending_commit}}}}}")
+    if d.reasoning_steps:
+        lines += ["", "*How the agent found it:*", steps_list(d.reasoning_steps)]
     lines += ["", "*Evidence:*", evidence, "",
-              f"*Investigation log* ({len(d.investigation)} read-only calls, {d.turns} model turns, "
-              f"model {{{{{d.model}}}}}, {d.input_tokens + d.output_tokens:,} tokens):",
-              "{noformat}", commands or "(no tool calls)", "{noformat}"]
+              f"*Investigation log* - every read-only call, in order, with what it showed "
+              f"({len(d.investigation)} calls, {d.turns} model turns, model {{{{{d.model}}}}}, "
+              f"{d.input_tokens + d.output_tokens:,} tokens):",
+              "{noformat}", investigation_lines(d.investigation), "{noformat}"]
     for ch in d.changes:
         lines += ["", f"*Proposed change to* {{{{{ch['path']}}}}}:", "{code:diff}", ch["diff"].rstrip(), "{code}"]
     lines += ["", AGENT_SIG]
@@ -105,7 +127,60 @@ TIMELINE_STEPS = [
     ("PR merged (human)", "merged_at"),
     ("ArgoCD synced", "synced_at"),
     ("Verified resolved", "verified_at"),
+    ("Escalated to a human", "escalated_at"),
+    ("Resolved after human action", "resolved_at"),
 ]
+
+# Who the time *before* each event was spent waiting on.
+PHASE_OWNER = {
+    "ticket_created_at": ("Alert -> ticket", "alert bridge"),
+    "picked_at": ("Ticket -> agent pickup", "agent (polling)"),
+    "diagnosed_at": ("Diagnosis", "agent (LLM)"),
+    "pr_opened_at": ("Diagnosis -> PR opened", "agent"),
+    "merged_at": ("Review and merge", "human"),
+    "synced_at": ("Merge -> ArgoCD sync", "ArgoCD"),
+    "verified_at": ("Sync -> verified", "agent (stability check)"),
+    "escalated_at": ("Diagnosis -> escalation", "agent"),
+    "resolved_at": ("Escalation -> fixed and verified", "human"),
+}
+
+
+def _seconds(start: str | None, end: str | None) -> int | None:
+    a, b = parse_iso(start), parse_iso(end)
+    return int((b - a).total_seconds()) if a and b else None
+
+
+def _dur(secs: int | None) -> str:
+    return "-" if secs is None else f"{secs // 60}m {secs % 60:02d}s"
+
+
+def phase_rows(state: dict) -> list[tuple[str, int | None, str]]:
+    """(phase, seconds, who) between consecutive recorded events, in time order."""
+    events = sorted(((parse_iso(state.get(f)), f) for _, f in TIMELINE_STEPS if parse_iso(state.get(f))),
+                    key=lambda e: e[0])
+    rows = []
+    for (_, prev), (_, field) in zip(events, events[1:]):
+        label, who = PHASE_OWNER.get(field, (field, "?"))
+        rows.append((label, _seconds(state.get(prev), state.get(field)), who))
+    return rows
+
+
+def timing_totals(state: dict) -> dict:
+    start = state.get("detected_at") or state.get("ticket_created_at")
+    end = state.get("verified_at") or state.get("resolved_at")
+    rows = phase_rows(state)
+    human = sum(s or 0 for _, s, who in rows if who == "human")
+    return {"mttr": _seconds(start, end), "human": human if rows else None,
+            "automated": (sum(s or 0 for _, s, _ in rows) - human) if rows else None}
+
+
+def timing_section(state: dict) -> str:
+    rows = "\n".join(f"|{label}|{_dur(s)}|{who}|" for label, s, who in phase_rows(state))
+    t = timing_totals(state)
+    return ("h4. Where the time went\n"
+            "||Phase||Duration||Waiting on||\n"
+            f"{rows}\n"
+            f"|*MTTR (alert -> resolved)*|*{_dur(t['mttr'])}*| automated {_dur(t['automated'])} / human {_dur(t['human'])}|")
 
 
 def timeline_rows(state: dict) -> list[tuple[str, str, str]]:
@@ -114,24 +189,35 @@ def timeline_rows(state: dict) -> list[tuple[str, str, str]]:
             for label, field in TIMELINE_STEPS if state.get(field)]
 
 
-def verified_comment(state: dict, checks: list[str]) -> str:
+def _timeline_table(state: dict) -> str:
     rows = "\n".join(f"|{l}|{t}|{d}|" for l, t, d in timeline_rows(state))
-    mttr = _delta(state.get("detected_at") or state.get("ticket_created_at"), state.get("verified_at"))
-    human_wait = _delta(state.get("pr_opened_at"), state.get("merged_at"))
+    return "h4. Timeline (UTC)\n||Step||Time||Since detection||\n" + rows
+
+
+def verified_comment(state: dict, checks: list[str]) -> str:
     check_lines = "\n".join(f"* (/) {c}" for c in checks)
     return ("h3. (/) Incident verified resolved\n"
             f"{check_lines}\n\n"
-            "h4. Timeline (UTC)\n"
-            "||Step||Time||Since detection||\n"
-            f"{rows}\n\n"
-            f"*MTTR:* {mttr}   |   *Time waiting for human review:* {human_wait}\n\n"
+            f"{timing_section(state)}\n\n{_timeline_table(state)}\n\n"
             "Full audit trail: this ticket, the PR, git history, ArgoCD sync history and the agent audit log.\n\n"
+            + AGENT_SIG)
+
+
+def resolved_after_escalation_comment(state: dict, checks: list[str]) -> str:
+    check_lines = "\n".join(f"* (/) {c}" for c in checks)
+    return ("h3. (/) Resolved after human action\n"
+            "The agent escalated this incident (no git fix). It has now verified the problem is gone:\n"
+            f"{check_lines}\n\n"
+            f"{timing_section(state)}\n\n{_timeline_table(state)}\n\n"
+            "Closing the ticket. Reopen it if the fix still needs follow-up (e.g. finding out why it happened).\n\n"
             + AGENT_SIG)
 
 
 def pr_body(key: str, jira_url: str, d: Diagnosis) -> str:
     evidence = "\n".join(f"- {e}" for e in d.evidence)
-    commands = "\n".join(_cmd(c) for c in d.investigation)
+    commands = investigation_lines(d.investigation)
+    found = (f"\n### How the root cause was found\n{steps_list(d.reasoning_steps, '1.')}\n"
+             if d.reasoning_steps else "")
     offending = f"\nIntroduced by commit `{d.offending_commit}`." if d.offending_commit else ""
     return f"""## 🤖 AI SRE remediation for [{key}]({jira_url})
 
@@ -146,6 +232,7 @@ def pr_body(key: str, jira_url: str, d: Diagnosis) -> str:
 {d.root_cause}
 {offending}
 
+{found}
 ### Evidence
 {evidence}
 
@@ -159,7 +246,7 @@ def pr_body(key: str, jira_url: str, d: Diagnosis) -> str:
 {d.verification_plan or "Alert resolves, all replicas available, ArgoCD Synced/Healthy."}
 After merge the agent watches ArgoCD sync and the alert state, then reports back on the Jira ticket.
 
-<details><summary>Investigation log ({len(d.investigation)} read-only calls · confidence: {d.confidence})</summary>
+<details><summary>Investigation log: every read-only call, in order, with what it showed ({len(d.investigation)} calls · confidence: {d.confidence})</summary>
 
 ```
 {commands}
@@ -193,6 +280,9 @@ def incident_record(key: str, jira_url: str, alerts: list[dict], d: Diagnosis) -
 
 ## Root cause
 {d.root_cause}
+
+## How it was found
+{steps_list(d.reasoning_steps, '1.') or '-'}
 
 ## Evidence
 {evidence}
