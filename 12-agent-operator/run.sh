@@ -17,19 +17,17 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 # Split agent.env: the controller gets everything (it does the Jira/GitHub writes);
 # the investigator Jobs only get the model key and the Grafana Viewer token.
 python3 - "$tmp" <<'EOF'
-import os, pathlib, sys
+import os, pathlib, shlex, sys
 out = pathlib.Path(sys.argv[1])
 env = {}
 for line in pathlib.Path("agent.env").read_text().splitlines():
     key, sep, value = line.partition("=")
-    key, value = key.strip(), value.strip()
-    if not sep or key.startswith("#"):
+    key = key.strip()
+    if not sep or not key or key.startswith("#"):
         continue
-    if value[:1] in "\"'" and value[-1:] == value[:1]:
-        value = value[1:-1]
-    else:
-        value = value.split(" #", 1)[0].strip()
-    env[key] = value
+    # Read the value the way bash does (quotes, trailing "# comment"), so the cluster
+    # sees exactly what the local agent sees, e.g. NAME="AI SRE Agent"   # comment
+    env[key] = " ".join(shlex.split(value, comments=True))
 if os.environ.get("DRY_RUN"):
     env["DRY_RUN"] = os.environ["DRY_RUN"]
 local_only = {"KUBECONFIG", "KUBECTL_BIN", "STATE_DB", "AUDIT_LOG", "GRAFANA_URL", "GITHUB_APP_PRIVATE_KEY_PATH"}
