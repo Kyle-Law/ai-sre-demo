@@ -59,7 +59,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8080
+              port: 9898
             initialDelaySeconds: 2
             periodSeconds: 5
             failureThreshold: 3
