@@ -14,16 +14,24 @@ reachable_from() { pod_sh "$1" "wget -qO- -T 5 $BRIDGE/healthz"; }
 blocked_from() { ! reachable_from "$1"; }
 contact_point_loaded() { grafana_api /api/v1/provisioning/contact-points | grep -q jira-bridge-webhook; }
 policy_routes_to_bridge() { grafana_api /api/v1/provisioning/policies | grep -q '"receiver":"jira-bridge"'; }
-jira_auth_ok() {  # same auth rules as the bridge: email -> Basic, none -> Bearer (service account)
+jira_get() {  # same auth rules as the bridge: email -> Basic, none -> Bearer (service account)
   local auth=(-u "${JIRA_EMAIL:-}:${JIRA_API_TOKEN}")
   [[ -n "${JIRA_EMAIL:-}" ]] || auth=(-H "Authorization: Bearer ${JIRA_API_TOKEN}")
-  curl -fsS "${auth[@]}" "${JIRA_API_URL:-$JIRA_BASE_URL}/rest/api/3/project/${JIRA_PROJECT_KEY}" >/dev/null
+  curl -fsS "${auth[@]}" "${JIRA_API_URL:-$JIRA_BASE_URL}$1"
 }
+jira_auth_ok() { jira_get "/rest/api/3/project/${JIRA_PROJECT_KEY}" >/dev/null; }
+jira_whoami() { jira_get /rest/api/3/myself | python3 -c 'import sys, json; print(json.load(sys.stdin)["displayName"])'; }
+bridge_identity_ok() { [[ "$(jira_whoami)" == "${JIRA_BRIDGE_SA_NAME}" ]]; }
 
 echo "Alert bridge"
 check "ArgoCD app 'jira-integration' Synced/Healthy" app_healthy jira-integration
 check "alert-bridge ready" kubectl -n ai-sre rollout status deploy/alert-bridge --timeout=5s
 check "Jira credentials work for project ${JIRA_PROJECT_KEY:-?} (from this machine)" jira_auth_ok
+if [[ -n "${JIRA_BRIDGE_SA_NAME:-}" ]]; then
+  check "bridge token belongs to service account '${JIRA_BRIDGE_SA_NAME}'" bridge_identity_ok
+else
+  info "bridge token belongs to: $(jira_whoami 2>/dev/null || echo '?') (set JIRA_BRIDGE_SA_NAME to enforce)"
+fi
 echo "Grafana routing"
 check "contact point 'jira-bridge' loaded" contact_point_loaded
 check "notification policy routes to jira-bridge" policy_routes_to_bridge

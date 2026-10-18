@@ -55,6 +55,7 @@ class Config:
     github_app_private_key_path: str = ""
     github_app_installation_id: str = ""  # optional: looked up from the repo when empty
     jira_api_url: str = ""  # scoped tokens: https://api.atlassian.com/ex/jira/<cloudId>
+    jira_sa_name: str = ""  # expected Jira service account name; selftest fails if the token is someone else
 
     # Loop behaviour
     poll_seconds: int = 20
@@ -99,6 +100,7 @@ class Config:
             jira_base_url=_env("JIRA_BASE_URL", required=writer).rstrip("/"),
             jira_email=_env("JIRA_EMAIL", required=writer and not _env("JIRA_API_URL")),
             jira_api_url=_env("JIRA_API_URL"),
+            jira_sa_name=_env("JIRA_AGENT_SA_NAME"),
             jira_api_token=_env("JIRA_API_TOKEN", required=writer),
             jira_project_key=_env("JIRA_PROJECT_KEY", required=writer),
             jira_triage_label=_env("JIRA_TRIAGE_LABEL", "ai-triage"),

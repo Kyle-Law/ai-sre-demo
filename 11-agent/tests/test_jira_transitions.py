@@ -87,3 +87,26 @@ def test_user_token_keeps_basic_auth_on_the_site(tmp_path):
     j = Jira("https://site.atlassian.net", "me@example.com", "ATATT-token", "SUP", AuditLog(str(tmp_path / "a")))
     assert j.api_url == "https://site.atlassian.net" and j.session.auth == ("me@example.com", "ATATT-token")
     assert "Authorization" not in j.session.headers
+
+
+class WhoAmI(Jira):
+    def __init__(self, tmp_path, name, account_type="app"):
+        super().__init__("https://site", "", "t", "SUP", AuditLog(str(tmp_path / "a")))
+        self.me = {"displayName": name, "accountType": account_type}
+
+    def _req(self, method, path, **kwargs):
+        assert (method, path) == ("GET", "/rest/api/2/myself")
+        return self.me
+
+
+def test_identity_matches_configured_service_account(tmp_path):
+    assert WhoAmI(tmp_path, "sre-bot").check_identity("sre-bot").startswith("sre-bot (accountType app)")
+
+
+def test_identity_mismatch_fails(tmp_path):
+    with pytest.raises(RuntimeError, match="belongs to Kyle .* expected service account 'sre-bot'"):
+        WhoAmI(tmp_path, "Kyle", "atlassian").check_identity("sre-bot")
+
+
+def test_identity_unset_only_reports(tmp_path):
+    assert "set the expected" in WhoAmI(tmp_path, "Kyle", "atlassian").check_identity("")

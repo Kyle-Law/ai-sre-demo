@@ -65,6 +65,15 @@ class Jira:
                f"AND statusCategory != Done ORDER BY created ASC")
         return self.search(jql)
 
+    def check_identity(self, expected: str = "") -> str:
+        """Who the token belongs to. With `expected` (the service account's name), raise if it's
+        someone else - e.g. a personal token, or the bridge's token in the agent's config."""
+        me = self._req("GET", "/rest/api/2/myself")
+        who = f"{me.get('displayName', '?')} (accountType {me.get('accountType', '?')})"
+        if expected and me.get("displayName") != expected:
+            raise RuntimeError(f"token belongs to {who}, expected service account '{expected}'")
+        return who if expected else f"{who}; set the expected service account name to enforce"
+
     def get_project(self) -> dict:
         return self._req("GET", f"/rest/api/2/project/{self.project}")
 

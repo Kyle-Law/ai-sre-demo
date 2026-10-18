@@ -149,6 +149,7 @@ def cmd_selftest(cfg: Config) -> int:
     check("Kubernetes API (list pods in shop)", lambda: _expect_ok(agent.kube.run(["get", "pods", "-n", "shop"])))
     check("Grafana / Prometheus query", lambda: str(agent.grafana.promql("up").get("status")))
     check("Grafana alert state", lambda: f"{len(agent.grafana.active_alerts())} active")
+    check("Jira identity", lambda: agent.jira.check_identity(cfg.jira_sa_name))
     # A wrong JIRA_BASE_URL can still answer searches with 0 results; the project lookup can't.
     check("Jira project", lambda: f"{cfg.jira_project_key} ({agent.jira.get_project()['name']})")
     check("Jira triage queue", lambda: f"{len(agent.jira.triage_queue(cfg.jira_triage_label))} open")
