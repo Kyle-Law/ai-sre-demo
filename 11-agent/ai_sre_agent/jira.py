@@ -15,19 +15,27 @@ ALERT_JSON_RE = re.compile(r"ALERT_JSON_BEGIN\s*\{code(?::json)?\}(.*?)\{code\}\
 
 
 class Jira:
-    def __init__(self, base_url: str, email: str, token: str, project: str, audit: AuditLog, dry_run: bool = False):
+    def __init__(self, base_url: str, email: str, token: str, project: str, audit: AuditLog, dry_run: bool = False,
+                 api_url: str = ""):
+        """base_url: the site (ticket links). api_url: where API calls go - the site for classic tokens,
+        https://api.atlassian.com/ex/jira/<cloudId> for scoped tokens (service accounts).
+        With an email: Basic auth; without: the token alone as a Bearer token."""
         self.base_url = base_url
+        self.api_url = (api_url or base_url).rstrip("/")
         self.project = project
         self.audit = audit
         self.dry_run = dry_run
         self.session = requests.Session()
-        self.session.auth = (email, token)
+        if email:
+            self.session.auth = (email, token)
+        else:
+            self.session.headers["Authorization"] = f"Bearer {token}"
         self.session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 
     # -- plumbing ---------------------------------------------------------
     def _req(self, method: str, path: str, **kwargs):
         for attempt in range(4):
-            resp = self.session.request(method, f"{self.base_url}{path}", timeout=30, **kwargs)
+            resp = self.session.request(method, f"{self.api_url}{path}", timeout=30, **kwargs)
             if resp.status_code == 429 and attempt < 3:
                 time.sleep(int(resp.headers.get("Retry-After", "2")))
                 continue
@@ -56,6 +64,15 @@ class Jira:
         jql = (f'project = "{self.project}" AND labels = "{label}" '
                f"AND statusCategory != Done ORDER BY created ASC")
         return self.search(jql)
+
+    def check_identity(self, expected: str = "") -> str:
+        """Who the token belongs to. With `expected` (the service account's name), raise if it's
+        someone else - e.g. a personal token, or the bridge's token in the agent's config."""
+        me = self._req("GET", "/rest/api/2/myself")
+        who = f"{me.get('displayName', '?')} (accountType {me.get('accountType', '?')})"
+        if expected and me.get("displayName") != expected:
+            raise RuntimeError(f"token belongs to {who}, expected service account '{expected}'")
+        return who if expected else f"{who}; set the expected service account name to enforce"
 
     def get_project(self) -> dict:
         return self._req("GET", f"/rest/api/2/project/{self.project}")

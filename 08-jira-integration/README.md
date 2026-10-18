@@ -26,6 +26,10 @@ ticket, and the ticket gets the `ai-triage` label the agent (step 11) watches fo
 
 ## Run
 
+Optional: use a Jira **service account** (any name) instead of your own account: leave
+`JIRA_EMAIL` empty, put its scoped token in `JIRA_API_TOKEN`, set `JIRA_API_URL` (see
+`demo.env.example`), and set `JIRA_BRIDGE_SA_NAME` to its name so `verify-08` confirms the token is it.
+
 Fill in `JIRA_*` in `demo.env` first (any project key whose project has a **Task** issue type; an API token from
 <https://id.atlassian.com/manage-profile/security/api-tokens>).
 

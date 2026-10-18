@@ -35,6 +35,7 @@ cp 11-agent/.env.example agent.env && chmod 600 agent.env && $EDITOR agent.env
 #   AGENT_MODEL              claude-sonnet-5-5 (default) or claude-haiku-5-5 (~20x cheaper per token)
 #   GRAFANA_TOKEN            <- 09-agent-access/create-grafana-token.sh
 #   JIRA_*                   (same site/project as step 08)
+#   JIRA_AGENT_SA_NAME       optional: the agent's Jira service account name; selftest fails on any other token
 #   JIRA_TRANSITION_*        status on pickup / PR opened / verified; empty = don't move; "A > B" = a path
 #                            Software project: "In Progress" / "In Review" / Done
 #                            Service-desk Task: "Work in progress > Pending" / (empty) / "Work in progress > Done"

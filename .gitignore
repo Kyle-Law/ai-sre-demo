@@ -20,3 +20,5 @@ build/
 # local agent state, GitHub App private key
 .agent/
 *.pem
+
+secrets.env

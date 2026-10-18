@@ -68,3 +68,45 @@ def test_empty_setting_does_nothing(tmp_path, name):
 def test_dry_run_moves_nothing(tmp_path):
     j = FakeJiraWorkflow(tmp_path, "Pending", dry_run=True)
     assert j.transition("SUP-9", "Work in progress > Done") and j.posts == []
+
+
+def test_service_account_uses_gateway_and_bearer(tmp_path):
+    """Scoped tokens only work via api.atlassian.com; ticket links must still point at the site."""
+    sent = []
+    j = Jira("https://site.atlassian.net", "", "ATSTT-token", "SUP", AuditLog(str(tmp_path / "a")),
+             api_url="https://api.atlassian.com/ex/jira/cloud-1")
+    j.session.request = lambda method, url, **kw: sent.append((url, j.session.headers.get("Authorization"),
+                                                                 j.session.auth)) or type(
+        "R", (), {"status_code": 200, "content": b"{}", "json": lambda self: {}})()
+    j.get_project()
+    assert sent == [("https://api.atlassian.com/ex/jira/cloud-1/rest/api/2/project/SUP", "Bearer ATSTT-token", None)]
+    assert j.browse_url("SUP-1") == "https://site.atlassian.net/browse/SUP-1"
+
+
+def test_user_token_keeps_basic_auth_on_the_site(tmp_path):
+    j = Jira("https://site.atlassian.net", "me@example.com", "ATATT-token", "SUP", AuditLog(str(tmp_path / "a")))
+    assert j.api_url == "https://site.atlassian.net" and j.session.auth == ("me@example.com", "ATATT-token")
+    assert "Authorization" not in j.session.headers
+
+
+class WhoAmI(Jira):
+    def __init__(self, tmp_path, name, account_type="app"):
+        super().__init__("https://site", "", "t", "SUP", AuditLog(str(tmp_path / "a")))
+        self.me = {"displayName": name, "accountType": account_type}
+
+    def _req(self, method, path, **kwargs):
+        assert (method, path) == ("GET", "/rest/api/2/myself")
+        return self.me
+
+
+def test_identity_matches_configured_service_account(tmp_path):
+    assert WhoAmI(tmp_path, "sre-bot").check_identity("sre-bot").startswith("sre-bot (accountType app)")
+
+
+def test_identity_mismatch_fails(tmp_path):
+    with pytest.raises(RuntimeError, match="belongs to Kyle .* expected service account 'sre-bot'"):
+        WhoAmI(tmp_path, "Kyle", "atlassian").check_identity("sre-bot")
+
+
+def test_identity_unset_only_reports(tmp_path):
+    assert "set the expected" in WhoAmI(tmp_path, "Kyle", "atlassian").check_identity("")

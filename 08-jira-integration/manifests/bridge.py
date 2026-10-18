@@ -32,6 +32,9 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+# Scoped tokens (Jira service accounts) only work through the API gateway:
+# https://api.atlassian.com/ex/jira/<cloudId>. Classic tokens use the site itself.
+JIRA_API_URL = (os.environ.get("JIRA_API_URL") or JIRA_BASE_URL).rstrip("/")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
 JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
 JIRA_PROJECT_KEY = os.environ.get("JIRA_PROJECT_KEY", "")
@@ -60,9 +63,10 @@ def label_safe(value: str) -> str:
 class Jira:
     def __init__(self, base_url: str, email: str, token: str):
         self.base_url = base_url
-        auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+        # With an email: Basic auth. Without (service account scoped token): Bearer.
+        auth = "Basic " + base64.b64encode(f"{email}:{token}".encode()).decode() if email else f"Bearer {token}"
         self.headers = {
-            "Authorization": f"Basic {auth}",
+            "Authorization": auth,
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
@@ -274,10 +278,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    missing = [n for n in ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_PROJECT_KEY") if not os.environ.get(n)]
+    missing = [n for n in ("JIRA_API_TOKEN", "JIRA_PROJECT_KEY") if not os.environ.get(n)]
+    if not JIRA_API_URL:
+        missing.append("JIRA_BASE_URL or JIRA_API_URL")
+    if not JIRA_EMAIL and not os.environ.get("JIRA_API_URL"):
+        missing.append("JIRA_EMAIL (or JIRA_API_URL with a scoped token)")
     if missing and not DRY_RUN:
         raise SystemExit(f"missing required env vars: {', '.join(missing)}")
-    Handler.jira = Jira(JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN)
+    Handler.jira = Jira(JIRA_API_URL, JIRA_EMAIL, JIRA_API_TOKEN)
     server = ThreadingHTTPServer(("0.0.0.0", LISTEN_PORT), Handler)
     jlog(logging.INFO, "listening", port=LISTEN_PORT, project=JIRA_PROJECT_KEY, dry_run=DRY_RUN)
     server.serve_forever()

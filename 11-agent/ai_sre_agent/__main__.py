@@ -38,7 +38,8 @@ def build(cfg: Config, dry_run: bool | None = None, incluster: bool = False) -> 
     kube = Kubectl(cfg.kubeconfig, cfg.kubectl_bin)
     grafana = Grafana(cfg.grafana_url, cfg.grafana_token, cfg.grafana_prom_uid)
     github = GitHub(cfg.github_api_url, auth_from_config(cfg), cfg.github_repo, cfg.github_base_branch, audit, dry)
-    jira = Jira(cfg.jira_base_url, cfg.jira_email, cfg.jira_api_token, cfg.jira_project_key, audit, dry)
+    jira = Jira(cfg.jira_base_url, cfg.jira_email, cfg.jira_api_token, cfg.jira_project_key, audit, dry,
+                api_url=cfg.jira_api_url)
     if incluster:
         from .incluster import CRStateStore, JobDiagnoser, operator_settings
         s = operator_settings()
@@ -148,6 +149,7 @@ def cmd_selftest(cfg: Config) -> int:
     check("Kubernetes API (list pods in shop)", lambda: _expect_ok(agent.kube.run(["get", "pods", "-n", "shop"])))
     check("Grafana / Prometheus query", lambda: str(agent.grafana.promql("up").get("status")))
     check("Grafana alert state", lambda: f"{len(agent.grafana.active_alerts())} active")
+    check("Jira identity", lambda: agent.jira.check_identity(cfg.jira_sa_name))
     # A wrong JIRA_BASE_URL can still answer searches with 0 results; the project lookup can't.
     check("Jira project", lambda: f"{cfg.jira_project_key} ({agent.jira.get_project()['name']})")
     check("Jira triage queue", lambda: f"{len(agent.jira.triage_queue(cfg.jira_triage_label))} open")
